@@ -22,15 +22,18 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const app = express();
 
 app.use(helmet());
-// Accepts requests from any local dev address - localhost, 127.0.0.1, or
-// any 192.168.x.x LAN IP, on any port - instead of requiring one exact
-// origin from .env. This is a deliberate relaxation for local development
-// only (this project has no production deployment yet); tighten this back
-// down to a single real domain before ever putting this on the internet.
+// Accepts requests from local dev addresses (localhost, 127.0.0.1, LAN IPs)
+// AND from the live Netlify frontend. Add any future custom domain to
+// allowedOrigins below if you attach one to Netlify later.
 const allowedOriginPattern = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/;
+const allowedOrigins = [
+  'https://comfy-pudding-4cf9eb.netlify.app'
+];
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOriginPattern.test(origin)) return callback(null, true);
+    if (!origin || allowedOriginPattern.test(origin) || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true

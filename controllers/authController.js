@@ -25,6 +25,22 @@ function isValidPhone(phone) {
   return phone && phone.replace(/\D/g, '').length >= 10;
 }
 
+// Given a taken business name, produces a handful of distinct alternatives
+// the applicant can pick from instead - e.g. "Andy's Poultry" already taken
+// suggests "Andy's Poultry Embu", "Andy's Poultry KE", "Andy's Poultry 2",
+// "Andy's Poultry Shop". Kept simple and predictable rather than clever,
+// so applicants immediately understand where each suggestion came from.
+function suggestBusinessNameAlternatives(name, county) {
+  const base = name.trim();
+  const suggestions = [
+    county ? `${base} ${county}` : null,
+    `${base} KE`,
+    `${base} 2`,
+    `${base} Shop`
+  ].filter(Boolean);
+  return [...new Set(suggestions)];
+}
+
 function publicUser(user) {
   const { password_hash, reset_password_token, reset_password_expires, ...rest } = user;
   return rest;
@@ -189,6 +205,19 @@ exports.applySeller = async (req, res) => {
   if (!business_name || !kra_pin || !county) return sendError(res, 400, 'business_name, kra_pin and county are required.');
   if (req.user.seller_status === 'pending') return sendError(res, 409, 'You already have a pending application.');
   if (req.user.seller_status === 'approved') return sendError(res, 409, 'You are already an approved seller.');
+
+  // Block exact-match business names (case-insensitive) against other
+  // pending/approved sellers, so two shops never end up confusing
+  // customers with the same storefront name. Offer alternatives instead
+  // of a bare rejection, so the applicant can pick one and resubmit.
+  const clash = await User.findByBusinessName(business_name, req.user.id);
+  if (clash) {
+    return res.status(409).json({
+      success: false,
+      message: `"${business_name}" is already registered by another seller. Please choose a different business name.`,
+      data: { suggestions: suggestBusinessNameAlternatives(business_name, county) }
+    });
+  }
 
   // Accepts either a real multipart file upload (req.files) or a
   // client-compressed base64 data URL sent directly in the JSON body -

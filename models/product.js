@@ -71,6 +71,15 @@ const Product = {
     return result.affectedRows > 0;
   },
 
+  // Admin-only removal: deletes any product regardless of which seller
+  // owns it. Used when a product violates platform standards and needs
+  // to come down permanently, as opposed to adminHide/adminUnhide which
+  // just toggle visibility and can be reversed by the seller re-listing.
+  async deleteAsAdmin(id) {
+    const [result] = await pool.query('DELETE FROM products WHERE id = ?', [id]);
+    return result.affectedRows > 0;
+  },
+
   async decrementStock(id, qty) {
     await pool.query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [qty, id]);
   },

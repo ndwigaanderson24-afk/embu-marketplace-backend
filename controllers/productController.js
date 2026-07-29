@@ -1,0 +1,106 @@
+// controllers/productController.js
+
+const Product = require('../models/product');
+const Review = require('../models/review');
+const Order = require('../models/order');
+const { sendSuccess, sendError } = require('../helpers');
+
+// POST /api/products  (protected, requireActiveSeller, multipart/form-data field "images")
+exports.create = async (req, res) => {
+  const { name, price } = req.body;
+  if (!name || price === undefined) return sendError(res, 400, 'name and price are required.');
+  if (Number(price) <= 0) return sendError(res, 400, 'price must be greater than 0.');
+
+  // County always comes from the seller's own account, never the request
+  // body - this is what makes delivery-fee calculation trustworthy.
+  const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : (req.body.image || null);
+  const productId = await Product.create(req.user.id, { ...req.body, county: req.user.county, image });
+  const product = await Product.findById(productId);
+  return sendSuccess(res, 201, 'Product added.', { product });
+};
+
+// GET /api/products/mine  (protected)
+exports.getMine = async (req, res) => {
+  const products = await Product.findBySeller(req.user.id, req.query);
+  return sendSuccess(res, 200, 'Products retrieved.', { products });
+};
+
+// PUT /api/products/:id  (protected, multipart/form-data field "images" optional)
+exports.update = async (req, res) => {
+  const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : undefined;
+  const updated = await Product.update(req.params.id, req.user.id, { ...req.body, ...(image ? { image } : {}) });
+  if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
+  const product = await Product.findById(req.params.id);
+  return sendSuccess(res, 200, 'Product updated.', { product });
+};
+
+// DELETE /api/products/:id  (protected)
+exports.remove = async (req, res) => {
+  const deleted = await Product.delete(req.params.id, req.user.id);
+  if (!deleted) return sendError(res, 404, 'Product not found.');
+  return sendSuccess(res, 200, 'Product deleted.');
+};
+
+// GET /api/products  (public storefront)
+exports.getPublicList = async (req, res) => {
+  const products = await Product.findPublic(req.query);
+  return sendSuccess(res, 200, 'Products retrieved.', { products });
+};
+
+// GET /api/products/:id  (public)
+exports.getOne = async (req, res) => {
+  const product = await Product.findById(req.params.id);
+  if (!product) return sendError(res, 404, 'Product not found.');
+  const reviews = await Review.findByProduct(req.params.id);
+  return sendSuccess(res, 200, 'Product retrieved.', { product, reviews });
+};
+
+// POST /api/products/:id/reviews  (protected)
+// Gated to an order that reached Delivered/Completed and contains this
+// product, and only once per order+product pair - matches the website.
+exports.addReview = async (req, res) => {
+  const { order_id, rating, comment } = req.body;
+  const numRating = Number(rating);
+  if (!order_id || !numRating || numRating < 1 || numRating > 5) return sendError(res, 400, 'order_id and a rating between 1 and 5 are required.');
+
+  const order = await Order.findById(order_id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+  if (req.user && order.customer_user_id && order.customer_user_id !== req.user.id) {
+    return sendError(res, 403, 'This order does not belong to you.');
+  }
+  if (!['Delivered', 'Completed'].includes(order.status)) {
+    return sendError(res, 400, 'You can review a product once your order has been delivered.');
+  }
+  if (!order.items.some(i => String(i.product_id) === String(req.params.id))) {
+    return sendError(res, 400, 'This product is not part of that order.');
+  }
+  if (await Review.alreadyReviewed(order_id, req.params.id)) {
+    return sendError(res, 409, "You've already reviewed this product for this order.");
+  }
+
+  await Review.create({
+    order_id, product_id: req.params.id, customer_user_id: req.user ? req.user.id : null,
+    customer_name: order.customer_name, rating: numRating, comment
+  });
+  return sendSuccess(res, 201, 'Thank you for rating this product!');
+};
+
+// GET /api/products/admin/all  (admin)
+exports.adminGetAll = async (req, res) => {
+  const products = await Product.findAllForAdmin(req.query);
+  return sendSuccess(res, 200, 'Products retrieved.', { products });
+};
+
+// PUT /api/products/admin/:id/hide  (admin)
+exports.adminHide = async (req, res) => {
+  const pool = require('../db');
+  await pool.query("UPDATE products SET status = 'inactive' WHERE id = ?", [req.params.id]);
+  return sendSuccess(res, 200, 'Product hidden.');
+};
+
+// PUT /api/products/admin/:id/unhide
+exports.adminUnhide = async (req, res) => {
+  const pool = require('../db');
+  await pool.query("UPDATE products SET status = 'active' WHERE id = ?", [req.params.id]);
+  return sendSuccess(res, 200, 'Product unhidden.');
+};

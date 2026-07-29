@@ -104,3 +104,32 @@ exports.adminUnhide = async (req, res) => {
   await pool.query("UPDATE products SET status = 'active' WHERE id = ?", [req.params.id]);
   return sendSuccess(res, 200, 'Product unhidden.');
 };
+
+// DELETE /api/products/admin/:id  { reason? }  (admin)
+// Permanently removes a product that violates platform standards - unlike
+// adminHide/adminUnhide, this can't be undone by the seller re-listing it.
+// Notifies the seller (if any) with the reason so they understand why.
+exports.adminDelete = async (req, res) => {
+  const { reason } = req.body;
+  const product = await Product.findById(req.params.id);
+  if (!product) return sendError(res, 404, 'Product not found.');
+
+  const deleted = await Product.deleteAsAdmin(req.params.id);
+  if (!deleted) return sendError(res, 404, 'Product not found.');
+
+  if (product.seller_id) {
+    const Notification = require('../models/notification');
+    await Notification.create(product.seller_id, {
+      title: 'A product was removed',
+      message: reason
+        ? `Your product "${product.name}" was removed by an admin: ${reason}`
+        : `Your product "${product.name}" was removed by an admin for not meeting platform standards.`,
+      type: 'product_removed'
+    });
+  }
+
+  const { logActivity } = require('./adminController');
+  await logActivity('admin', 'product_deleted', `product ${req.params.id} (${product.name})${reason ? ': ' + reason : ''}`);
+
+  return sendSuccess(res, 200, 'Product permanently removed.');
+};

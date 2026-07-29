@@ -44,7 +44,10 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
 app.use('/api/auth/', rateLimit({
-  windowMs: 15 * 60 * 1000, max: 20,
+  // Temporarily raised from 20 to 100 while actively testing/developing.
+  // Tighten this back down to a lower number (e.g. 20) before real users
+  // are on the site, to keep the brute-force protection meaningful.
+  windowMs: 15 * 60 * 1000, max: 100,
   message: { success: false, message: 'Too many attempts. Please try again later.' }
 }));
 

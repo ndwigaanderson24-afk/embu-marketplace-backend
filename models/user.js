@@ -36,6 +36,19 @@ const User = {
     return rows[0] || null;
   },
 
+  // Case-insensitive exact match against other sellers whose application
+  // is pending or approved (a rejected applicant's old name doesn't block
+  // reuse). Used to stop two shops from registering the same business
+  // name and confusing customers.
+  async findByBusinessName(businessName, excludeUserId = null) {
+    let sql = `SELECT id, business_name FROM users
+               WHERE LOWER(business_name) = LOWER(?) AND seller_status IN ('pending','approved')`;
+    const params = [businessName];
+    if (excludeUserId) { sql += ' AND id != ?'; params.push(excludeUserId); }
+    const [rows] = await pool.query(sql, params);
+    return rows[0] || null;
+  },
+
   async updatePassword(id, password_hash) {
     await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash, id]);
   },

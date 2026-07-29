@@ -29,6 +29,7 @@ router.post('/:id/reviews', optionalAuth, wrap(product.addReview));
 router.get('/admin/all', protect, requireAdmin, wrap(product.adminGetAll));
 router.put('/admin/:id/hide', protect, requireAdmin, wrap(product.adminHide));
 router.put('/admin/:id/unhide', protect, requireAdmin, wrap(product.adminUnhide));
+router.delete('/admin/:id', protect, requireAdmin, wrap(product.adminDelete));
 
 // Public single product (kept last so it doesn't shadow /mine or /admin/*)
 router.get('/:id', wrap(product.getOne));

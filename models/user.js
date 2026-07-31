@@ -65,11 +65,16 @@ const User = {
     return rows[0] || null;
   },
 
-  // Turns a plain user into a pending seller applicant.
+  // Turns a plain user into a pending seller applicant. Records exactly
+  // when they accepted the Seller Terms & Conditions as a real audit
+  // trail (the frontend gate is enforced again server-side in
+  // authController.applySeller, so this timestamp always reflects an
+  // actual accepted application, not just a UI flag).
   async applyAsSeller(id, { business_name, kra_pin, county, business_description, id_photo_path, business_doc_path }) {
     await pool.query(
       `UPDATE users SET business_name=?, kra_pin=?, county=?, business_description=?,
-        id_photo_path=?, business_doc_path=?, seller_status='pending', seller_rejection_reason=NULL
+        id_photo_path=?, business_doc_path=?, seller_status='pending', seller_rejection_reason=NULL,
+        seller_terms_accepted_at=NOW()
        WHERE id = ?`,
       [business_name, kra_pin, county, business_description || null, id_photo_path || null, business_doc_path || null, id]
     );

@@ -201,8 +201,11 @@ exports.getMe = async (req, res) => {
 // Fields: business_name, kra_pin, county, business_description
 // Files (optional): id_photo, business_doc
 exports.applySeller = async (req, res) => {
-  const { business_name, kra_pin, county, business_description, id_photo, business_doc } = req.body;
+  const { business_name, kra_pin, county, business_description, id_photo, business_doc, terms_accepted } = req.body;
   if (!business_name || !kra_pin || !county) return sendError(res, 400, 'business_name, kra_pin and county are required.');
+  if (terms_accepted !== true && terms_accepted !== 'true') {
+    return sendError(res, 400, 'You must accept the Seller Terms & Conditions before applying.');
+  }
   if (req.user.seller_status === 'pending') return sendError(res, 409, 'You already have a pending application.');
   if (req.user.seller_status === 'approved') return sendError(res, 409, 'You are already an approved seller.');
 

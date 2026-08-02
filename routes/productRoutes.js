@@ -26,7 +26,9 @@ router.delete('/:id', protect, requireActiveSeller, wrap(product.remove));
 router.post('/:id/reviews', optionalAuth, wrap(product.addReview));
 
 // Admin
+router.post('/admin', protect, requireAdmin, wrap(product.adminCreate));
 router.get('/admin/all', protect, requireAdmin, wrap(product.adminGetAll));
+router.put('/admin/:id', protect, requireAdmin, wrap(product.adminUpdate));
 router.put('/admin/:id/hide', protect, requireAdmin, wrap(product.adminHide));
 router.put('/admin/:id/unhide', protect, requireAdmin, wrap(product.adminUnhide));
 router.delete('/admin/:id', protect, requireAdmin, wrap(product.adminDelete));

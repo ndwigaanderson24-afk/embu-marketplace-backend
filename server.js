@@ -27,7 +27,9 @@ app.use(helmet());
 // allowedOrigins below if you attach one to Netlify later.
 const allowedOriginPattern = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/;
 const allowedOrigins = [
-  'https://comfy-pudding-4cf9eb.netlify.app'
+  'https://comfy-pudding-4cf9eb.netlify.app',
+  'https://kenlynk.com',
+  'https://www.kenlynk.com'
 ];
 app.use(cors({
   origin: (origin, callback) => {

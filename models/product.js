@@ -66,6 +66,21 @@ const Product = {
     return result.affectedRows > 0;
   },
 
+  // Admin-only update: edits any product regardless of which seller (or
+  // no seller) owns it - used for platform products added directly by
+  // an admin, since those have no seller to match against.
+  async updateAsAdmin(id, data) {
+    const allowed = ['name', 'description', 'category', 'price', 'original_price', 'emoji',
+      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status'];
+    const keys = Object.keys(data).filter(k => allowed.includes(k));
+    if (!keys.length) return false;
+    const setClause = keys.map(k => `${k} = ?`).join(', ');
+    const values = keys.map(k => data[k]);
+    values.push(id);
+    const [result] = await pool.query(`UPDATE products SET ${setClause} WHERE id = ?`, values);
+    return result.affectedRows > 0;
+  },
+
   async delete(id, sellerId) {
     const [result] = await pool.query('DELETE FROM products WHERE id = ? AND seller_id = ?', [id, sellerId]);
     return result.affectedRows > 0;

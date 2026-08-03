@@ -281,17 +281,84 @@
 
 
 
-    .cat-row{ display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; margin-bottom:24px; scrollbar-width:thin; }
+    /* ── Category Browser ─────────────────────────────────────── */
+    .cat-row{ margin-bottom:0; }
 
-    .cat-row::-webkit-scrollbar{ height:5px; }
+    /* Main category icons grid */
+    .cat-main-grid{
+      display:grid;
+      grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+      gap:10px;
+      padding:0 0 12px;
+    }
+    @media(max-width:480px){ .cat-main-grid{ grid-template-columns: repeat(4, 1fr); gap:8px; } }
 
-    .cat-row::-webkit-scrollbar-thumb{ background:var(--border-strong); border-radius:4px; }
+    .cat-main-card{
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:6px; padding:12px 6px;
+      background:var(--surface); border:2px solid transparent;
+      border-radius:14px; cursor:pointer; transition:all 0.18s ease;
+      text-align:center; min-height:80px;
+    }
+    .cat-main-card:hover{ border-color:var(--border-strong); background:var(--surface-2); }
+    .cat-main-card.active{ border-color:var(--green); background:rgba(0,107,63,0.12); }
+    .cat-main-card .cat-icon{ font-size:28px; line-height:1; }
+    .cat-main-card img.cat-img{ width:36px; height:36px; object-fit:cover; border-radius:8px; }
+    .cat-main-card .cat-label{ font-size:10.5px; font-weight:700; color:var(--gray); line-height:1.2; word-break:break-word; }
+    .cat-main-card.active .cat-label{ color:var(--green-light); }
 
-    .cat-pill{ flex-shrink:0; background:var(--surface); border:1px solid var(--border-strong); color:var(--gray); padding:8px 16px; border-radius:999px; font-size:13px; font-weight:600; white-space:nowrap; transition:all 0.2s ease; }
+    /* Subcategory strip */
+    .cat-sub-strip{
+      display:flex; gap:8px; flex-wrap:wrap;
+      padding:10px 0 8px;
+      border-bottom:1px solid var(--border);
+      margin-bottom:12px;
+      animation: fadeIn 0.2s ease;
+    }
+    .cat-sub-pill{
+      display:flex; align-items:center; gap:5px;
+      background:var(--surface-2); border:1px solid var(--border-strong);
+      color:var(--gray); padding:6px 14px; border-radius:999px;
+      font-size:12px; font-weight:600; cursor:pointer;
+      transition:all 0.15s ease; white-space:nowrap;
+    }
+    .cat-sub-pill:hover{ color:var(--white); border-color:var(--white); }
+    .cat-sub-pill.active{ background:var(--green); border-color:var(--green); color:#fff; }
 
+    /* Child category chips */
+    .cat-child-strip{
+      display:flex; gap:6px; flex-wrap:wrap;
+      padding:6px 0 14px;
+      animation: fadeIn 0.2s ease;
+    }
+    .cat-child-chip{
+      background:var(--surface-3); border:1px solid var(--border);
+      color:var(--gray); padding:4px 12px; border-radius:8px;
+      font-size:11px; font-weight:600; cursor:pointer; transition:all 0.15s ease;
+    }
+    .cat-child-chip:hover{ color:var(--white); border-color:var(--gray); }
+    .cat-child-chip.active{ background:var(--gold); border-color:var(--gold); color:#111; }
+
+    /* Quick filter bar above grid (All, Hot Deals) */
+    .cat-quick-bar{
+      display:flex; gap:8px; align-items:center;
+      padding-bottom:14px; overflow-x:auto;
+      scrollbar-width:none;
+    }
+    .cat-quick-bar::-webkit-scrollbar{ display:none; }
+    .cat-pill{ flex-shrink:0; background:var(--surface); border:1px solid var(--border-strong); color:var(--gray); padding:7px 16px; border-radius:999px; font-size:12.5px; font-weight:600; white-space:nowrap; transition:all 0.2s ease; cursor:pointer; }
     .cat-pill.active{ background:var(--gold); border-color:var(--gold); color:#111; }
-
     .cat-pill:not(.active):hover{ color:var(--white); border-color:var(--gray); }
+
+    /* Breadcrumb trail */
+    .cat-breadcrumb{
+      font-size:12px; color:var(--gray); padding:0 0 10px;
+      display:flex; align-items:center; flex-wrap:wrap; gap:4px;
+    }
+    .cat-breadcrumb span{ color:var(--white); font-weight:600; }
+    .cat-breadcrumb .sep{ opacity:0.4; }
+
+    @keyframes fadeIn{ from{opacity:0; transform:translateY(-4px);} to{opacity:1; transform:translateY(0);} }
 
 
 
@@ -553,7 +620,14 @@
 
 
 
-    @media (max-width:640px){ .float-btn{ width:50px; height:50px; font-size:21px; } #userBtn{ width:50px; height:50px; font-size:21px; bottom:85px; } }
+    @media (max-width:640px){
+      .float-btn{ width:50px; height:50px; font-size:21px; }
+      /* Lift floating buttons above the 72px bottom tab bar */
+      #waFloat  { bottom:82px; }
+      #cartFloat{ bottom:82px; }
+      #userBtn  { width:50px; height:50px; font-size:21px; bottom:144px; }
+      #toastWrap{ bottom:160px; }
+    }
 
   
 
@@ -1494,7 +1568,16 @@
 
       <div class="search-row"><div class="search-box"><span class="ic">🔍</span><input type="text" id="searchInput" placeholder="Search for coffee, sandals, speakers…"></div></div>
 
-      <div class="cat-row" id="catRow"></div>
+      <!-- Quick filter bar: All / Hot Deals -->
+      <div class="cat-quick-bar" id="catQuickBar"></div>
+      <!-- Category breadcrumb trail -->
+      <div class="cat-breadcrumb" id="catBreadcrumb" style="display:none;"></div>
+      <!-- Main category icon grid -->
+      <div class="cat-main-grid" id="catMainGrid"></div>
+      <!-- Subcategory pill strip (shown when a main cat is selected) -->
+      <div class="cat-sub-strip" id="catSubStrip" style="display:none;"></div>
+      <!-- Child category chips (shown when a sub cat is selected) -->
+      <div class="cat-child-strip" id="catChildStrip" style="display:none;"></div>
 
       <div class="grid" id="productGrid"></div>
 
@@ -2090,11 +2173,22 @@
 
 </div>
 
-            <div class="field"><label>Category *</label><select id="sellerCategory"><option value="grocery">Grocery</option><option value="electronics">Electronics</option>
-
-              <option value="fashion">Fashion</option><option value="furniture">Furniture</option><option value="beauty">Beauty</option><option value="sports">Sports</option>
-
-              <option value="kids">Kids</option><option value="books">Books</option><option value="toys">Toys</option><option value="automotive">Automotive</option></select></div>
+            <div class="field"><label>Category *</label>
+              <!-- Step-by-step cascade: Main → Sub → Child -->
+              <div id="sellerCategoryPicker" style="display:flex; flex-direction:column; gap:8px;">
+                <select id="sellerCatMain" style="background:var(--surface-2); border:1px solid var(--border-strong); color:var(--white); border-radius:8px; padding:8px 10px; font-size:13px;">
+                  <option value="">— Select Category —</option>
+                </select>
+                <select id="sellerCatSub" style="display:none; background:var(--surface-2); border:1px solid var(--border-strong); color:var(--white); border-radius:8px; padding:8px 10px; font-size:13px;">
+                  <option value="">— Select Subcategory —</option>
+                </select>
+                <select id="sellerCatChild" style="display:none; background:var(--surface-2); border:1px solid var(--border-strong); color:var(--white); border-radius:8px; padding:8px 10px; font-size:13px;">
+                  <option value="">— Select Child Category —</option>
+                </select>
+                <input type="hidden" id="sellerCategory" value="">
+                <div id="sellerCatBreadcrumb" style="font-size:11px; color:var(--green-light); display:none;"></div>
+              </div>
+            </div>
 
               <div class="field">
 
@@ -2352,6 +2446,12 @@
         <div class="admin-stat"><div class="icon">📋</div><div class="number" id="adminTotalOrders">0</div><div class="label" id="adminGridOrdersLabel">Orders</div></div>
 
         <div class="admin-stat"><div class="icon">👤</div><div class="number" id="adminTotalUsers">0</div><div class="label" id="adminGridUsersLabel">Users</div></div>
+
+        <div class="admin-stat" onclick="openCategoryManager()" style="cursor:pointer; border-color:var(--green); transition:all 0.2s ease;" onmouseover="this.style.background='rgba(0,107,63,0.12)'" onmouseout="this.style.background=''">
+          <div class="icon">📂</div>
+          <div class="number" style="font-size:16px; color:var(--green-light);">Manage</div>
+          <div class="label">Categories</div>
+        </div>
 
       </div>
 
@@ -2617,11 +2717,21 @@
 
           <div class="field"><label>Original Price (optional)</label><input type="number" id="adminOriginalPrice" placeholder="1000"></div>
 
-          <div class="field"><label>Category *</label><select id="adminCategory"><option value="grocery">Grocery</option><option value="electronics">Electronics</option>
-
-            <option value="fashion">Fashion</option><option value="furniture">Furniture</option><option value="beauty">Beauty</option><option value="sports">Sports</option>
-
-            <option value="kids">Kids</option><option value="books">Books</option><option value="toys">Toys</option><option value="automotive">Automotive</option></select></div>
+          <div class="field"><label>Category *</label>
+            <div id="adminCategoryPicker" style="display:flex; flex-direction:column; gap:8px;">
+              <select id="adminCatMain" style="background:var(--surface-2); border:1px solid var(--border-strong); color:var(--white); border-radius:8px; padding:8px 10px; font-size:13px;">
+                <option value="">— Select Category —</option>
+              </select>
+              <select id="adminCatSub" style="display:none; background:var(--surface-2); border:1px solid var(--border-strong); color:var(--white); border-radius:8px; padding:8px 10px; font-size:13px;">
+                <option value="">— Select Subcategory —</option>
+              </select>
+              <select id="adminCatChild" style="display:none; background:var(--surface-2); border:1px solid var(--border-strong); color:var(--white); border-radius:8px; padding:8px 10px; font-size:13px;">
+                <option value="">— Select Child Category —</option>
+              </select>
+              <input type="hidden" id="adminCategory" value="">
+              <div id="adminCatBreadcrumb" style="font-size:11px; color:var(--green-light); display:none;"></div>
+            </div>
+          </div>
 
           <div class="field"><label>Hot Deal</label><select id="adminHot"><option value="false">No</option><option value="true">Yes 🔥</option></select></div>
 
@@ -5361,33 +5471,44 @@ var lastDeliveryPlan = null;
 let PRODUCTS = [];
 
 
-const CATEGORIES = [
+// ── Dynamic Category System ─────────────────────────────────────────────
+// Replaces the old hardcoded CATEGORIES array.
+// CATEGORY_TREE  = full nested tree from /api/categories/tree
+// CATEGORY_FLAT  = flat array from /api/categories (all active)
+let CATEGORY_TREE = [];
+let CATEGORY_FLAT = [];
+let categoriesLoaded = false;
 
-  {id: 'all', label: 'All'},
+async function loadCategories() {
+  if (categoriesLoaded) return;
+  try {
+    const res = await apiCall('/categories/tree');
+    CATEGORY_TREE = res?.data?.categories || [];
+    // Build flat list from tree for dropdowns
+    CATEGORY_FLAT = [];
+    function flatten(nodes, depth = 0) {
+      for (const n of nodes) {
+        CATEGORY_FLAT.push({ ...n, _depth: depth });
+        if (n.children && n.children.length) flatten(n.children, depth + 1);
+      }
+    }
+    flatten(CATEGORY_TREE);
+    categoriesLoaded = true;
+  } catch (e) {
+    console.warn('Could not load categories:', e.message);
+    // Graceful fallback so the shop still works
+    CATEGORY_TREE = [];
+    CATEGORY_FLAT = [];
+  }
+}
 
-  {id: 'grocery', label: 'Grocery'},
-
-  {id: 'electronics', label: 'Electronics'},
-
-  {id: 'fashion', label: 'Fashion'},
-
-  {id: 'furniture', label: 'Furniture'},
-
-  {id: 'beauty', label: 'Beauty'},
-
-  {id: 'sports', label: 'Sports'},
-
-  {id: 'kids', label: 'Kids'},
-
-  {id: 'books', label: 'Books'},
-
-  {id: 'toys', label: 'Toys'},
-
-  {id: 'automotive', label: 'Automotive'},
-
-  {id: 'hotdeals', label: '🔥 Hot Deals'}
-
-];
+// Legacy CATEGORIES kept for any code still referencing it — built dynamically
+const CATEGORIES = new Proxy([], {
+  get(target, prop) {
+    if (prop === 'length') return target.length;
+    return target[prop];
+  }
+});
 
 
 
@@ -6062,31 +6183,174 @@ if(page === "admin") {
 
     catRow.innerHTML = "";
 
-    CATEGORIES.forEach(cat => {
+    // ── Amazon/Jumia-Style Dynamic Category Browser ──────────────────
+    // Three-level hierarchy: Main → Subcategory → Child Category
+    // State
+    let _activeCatId     = null;   // final selected category id (null = all)
+    let _activeMainId    = null;   // which main cat icon is highlighted
+    let _activeSubId     = null;   // which subcategory pill is highlighted
 
-      const pill = document.createElement("button");
+    const _elQuickBar   = document.getElementById('catQuickBar');
+    const _elMainGrid   = document.getElementById('catMainGrid');
+    const _elSubStrip   = document.getElementById('catSubStrip');
+    const _elChildStrip = document.getElementById('catChildStrip');
+    const _elBreadcrumb = document.getElementById('catBreadcrumb');
 
-      pill.className = "cat-pill" + (cat.id === activeCategory ? " active" : "");
+    function _catSetActive(catId, mainId, subId) {
+      _activeCatId  = catId;
+      _activeMainId = mainId;
+      _activeSubId  = subId;
+      activeCategory = catId ? 'cat:' + catId : 'all';
+    }
 
-      pill.textContent = cat.label;
-
-      pill.dataset.cat = cat.id;
-
-      pill.addEventListener("click", function() {
-
-        document.querySelectorAll(".cat-pill").forEach(p => p.classList.remove("active"));
-
-        this.classList.add("active");
-
-        activeCategory = cat.id;
-
+    function _renderQuickBar() {
+      if (!_elQuickBar) return;
+      _elQuickBar.innerHTML = '';
+      const makeQ = (label, key, fn) => {
+        const b = document.createElement('button');
+        b.className = 'cat-pill' + (activeCategory === key ? ' active' : '');
+        b.textContent = label;
+        b.onclick = fn;
+        _elQuickBar.appendChild(b);
+      };
+      makeQ('All Products', 'all', () => {
+        _catSetActive(null, null, null);
+        _renderCategoryBrowser();
         renderProducts();
-
       });
+      makeQ('🔥 Hot Deals', 'hotdeals', () => {
+        _catSetActive(null, null, null);
+        activeCategory = 'hotdeals';
+        _activeMainId = null;
+        _renderCategoryBrowser();
+        renderProducts();
+      });
+    }
 
-      catRow.appendChild(pill);
+    function _renderMainGrid() {
+      if (!_elMainGrid) return;
+      _elMainGrid.innerHTML = '';
+      for (const main of CATEGORY_TREE) {
+        const card = document.createElement('div');
+        card.className = 'cat-main-card' + (_activeMainId === main.id ? ' active' : '');
+        // Image or emoji icon
+        let iconHtml = '';
+        if (main.image_url) {
+          iconHtml = `<img class="cat-img" src="${escapeHtml(main.image_url)}" alt="" onerror="this.style.display='none'">`;
+        } else {
+          iconHtml = `<span class="cat-icon">${main.icon || '📦'}</span>`;
+        }
+        card.innerHTML = `${iconHtml}<span class="cat-label">${escapeHtml(main.name)}</span>`;
+        card.onclick = () => {
+          if (_activeMainId === main.id && !_activeSubId) {
+            // Second click on same main → collapse, show all
+            _catSetActive(null, null, null);
+          } else {
+            _catSetActive(main.id, main.id, null);
+          }
+          _renderCategoryBrowser();
+          renderProducts();
+        };
+        _elMainGrid.appendChild(card);
+      }
+    }
 
-    });
+    function _renderSubStrip() {
+      if (!_elSubStrip) return;
+      if (!_activeMainId) { _elSubStrip.style.display = 'none'; return; }
+      const main = CATEGORY_TREE.find(c => c.id === _activeMainId);
+      if (!main || !main.children || !main.children.length) {
+        _elSubStrip.style.display = 'none'; return;
+      }
+      _elSubStrip.style.display = 'flex';
+      _elSubStrip.innerHTML = '';
+      // "All in [Main]" pill
+      const allSub = document.createElement('button');
+      allSub.className = 'cat-sub-pill' + (!_activeSubId ? ' active' : '');
+      allSub.innerHTML = `All ${main.icon || ''} ${escapeHtml(main.name)}`;
+      allSub.onclick = () => {
+        _catSetActive(main.id, main.id, null);
+        _renderCategoryBrowser();
+        renderProducts();
+      };
+      _elSubStrip.appendChild(allSub);
+
+      for (const sub of main.children) {
+        const pill = document.createElement('button');
+        pill.className = 'cat-sub-pill' + (_activeSubId === sub.id ? ' active' : '');
+        pill.innerHTML = `${sub.icon || ''} ${escapeHtml(sub.name)}${sub.children && sub.children.length ? ' ▸' : ''}`;
+        pill.onclick = () => {
+          if (_activeSubId === sub.id) {
+            // Collapse sub, stay on main
+            _catSetActive(main.id, main.id, null);
+          } else {
+            _catSetActive(sub.id, main.id, sub.id);
+          }
+          _renderCategoryBrowser();
+          renderProducts();
+        };
+        _elSubStrip.appendChild(pill);
+      }
+    }
+
+    function _renderChildStrip() {
+      if (!_elChildStrip) return;
+      if (!_activeSubId || !_activeMainId) { _elChildStrip.style.display = 'none'; return; }
+      const main = CATEGORY_TREE.find(c => c.id === _activeMainId);
+      const sub  = main && main.children ? main.children.find(c => c.id === _activeSubId) : null;
+      if (!sub || !sub.children || !sub.children.length) {
+        _elChildStrip.style.display = 'none'; return;
+      }
+      _elChildStrip.style.display = 'flex';
+      _elChildStrip.innerHTML = '';
+      for (const child of sub.children) {
+        const chip = document.createElement('button');
+        chip.className = 'cat-child-chip' + (_activeCatId === child.id ? ' active' : '');
+        chip.innerHTML = `${child.icon || ''} ${escapeHtml(child.name)}`;
+        chip.onclick = () => {
+          _catSetActive(child.id === _activeCatId ? sub.id : child.id, _activeMainId, _activeSubId);
+          _renderCategoryBrowser();
+          renderProducts();
+        };
+        _elChildStrip.appendChild(chip);
+      }
+    }
+
+    function _renderBreadcrumb() {
+      if (!_elBreadcrumb) return;
+      const parts = [];
+      if (_activeMainId) {
+        const main = CATEGORY_TREE.find(c => c.id === _activeMainId);
+        if (main) parts.push({ id: main.id, name: main.name, icon: main.icon || '' });
+      }
+      if (_activeSubId) {
+        const main = CATEGORY_TREE.find(c => c.id === _activeMainId);
+        const sub  = main && main.children ? main.children.find(c => c.id === _activeSubId) : null;
+        if (sub) parts.push({ id: sub.id, name: sub.name, icon: sub.icon || '' });
+      }
+      if (_activeCatId && _activeCatId !== _activeSubId && _activeCatId !== _activeMainId) {
+        const main = CATEGORY_TREE.find(c => c.id === _activeMainId);
+        const sub  = main && main.children ? main.children.find(c => c.id === _activeSubId) : null;
+        const child = sub && sub.children ? sub.children.find(c => c.id === _activeCatId) : null;
+        if (child) parts.push({ id: child.id, name: child.name, icon: child.icon || '' });
+      }
+      if (!parts.length) { _elBreadcrumb.style.display = 'none'; return; }
+      _elBreadcrumb.style.display = 'flex';
+      _elBreadcrumb.innerHTML = parts.map((p, i) =>
+        `${i > 0 ? '<span class="sep">›</span>' : '🏠 '}<span>${p.icon} ${escapeHtml(p.name)}</span>`
+      ).join('');
+    }
+
+    function _renderCategoryBrowser() {
+      _renderQuickBar();
+      _renderMainGrid();
+      _renderSubStrip();
+      _renderChildStrip();
+      _renderBreadcrumb();
+    }
+
+    // Load categories then render
+    loadCategories().then(_renderCategoryBrowser);
 
   }
 
@@ -6100,7 +6364,18 @@ if(page === "admin") {
 
     return PRODUCTS.filter(p=>{
 
-      const matchesCat = activeCategory === "all" ? true : (activeCategory === "hotdeals" ? !!p.hot : p.category === activeCategory);
+      const matchesCat = activeCategory === "all" ? true
+        : activeCategory === "hotdeals" ? !!p.hot
+        : activeCategory.startsWith('cat:')
+          ? (() => {
+              const catId = Number(activeCategory.slice(4));
+              // Match by category_id (new) or fall back to slug/name match (legacy)
+              if (p.category_id) return p.category_id === catId;
+              // Legacy string category — find the category node and match by slug/name
+              const node = CATEGORY_FLAT.find(c => c.id === catId);
+              return node ? (p.category === node.slug || p.category === node.name.toLowerCase()) : false;
+            })()
+          : p.category === activeCategory;
 
       const matchesSearch = !searchTerm || p.name.toLowerCase().includes(searchTerm) || (p.desc || '').toLowerCase().includes(searchTerm);
 
@@ -15519,7 +15794,450 @@ window.rateRider = rateRider;
 
 <script>
 // ════════════════════════════════════════════════════════════════════
-// PRODUCT VARIANTS BUILDER (Seller Dashboard)
+// DYNAMIC CASCADE CATEGORY PICKER
+// Shared by seller form, admin product form.
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * Initialise a three-level cascade picker.
+ * @param {string} mainId    - id of the main <select>
+ * @param {string} subId     - id of the sub <select>
+ * @param {string} childId   - id of the child <select>
+ * @param {string} hiddenId  - id of the <input type="hidden"> storing final category_id
+ * @param {string} breadcrumbId - id of the breadcrumb display div
+ */
+function initCascadePicker(mainId, subId, childId, hiddenId, breadcrumbId) {
+  const mainSel  = document.getElementById(mainId);
+  const subSel   = document.getElementById(subId);
+  const childSel = document.getElementById(childId);
+  const hidden   = document.getElementById(hiddenId);
+  const crumb    = document.getElementById(breadcrumbId);
+  if (!mainSel) return;
+
+  // Populate main categories
+  function populateMain() {
+    mainSel.innerHTML = '<option value="">— Select Category —</option>';
+    for (const cat of CATEGORY_TREE) {
+      const opt = document.createElement('option');
+      opt.value = cat.id;
+      opt.textContent = (cat.icon ? cat.icon + ' ' : '') + cat.name;
+      mainSel.appendChild(opt);
+    }
+  }
+
+  function populateSub(mainId) {
+    subSel.innerHTML = '<option value="">— Select Subcategory —</option>';
+    const main = CATEGORY_TREE.find(c => c.id === Number(mainId));
+    if (main && main.children && main.children.length) {
+      for (const sub of main.children) {
+        const opt = document.createElement('option');
+        opt.value = sub.id;
+        opt.textContent = (sub.icon ? sub.icon + ' ' : '') + sub.name;
+        subSel.appendChild(opt);
+      }
+      subSel.style.display = '';
+    } else {
+      subSel.style.display = 'none';
+      // No subcategories — main IS the final selection
+      hidden.value = mainId;
+      updateCrumb();
+    }
+    childSel.style.display = 'none';
+    childSel.innerHTML = '<option value="">— Select Child Category —</option>';
+  }
+
+  function populateChild(subIdVal) {
+    childSel.innerHTML = '<option value="">— Select Child Category —</option>';
+    const main = CATEGORY_TREE.find(c => c.id === Number(mainSel.value));
+    const sub  = main && main.children ? main.children.find(c => c.id === Number(subIdVal)) : null;
+    if (sub && sub.children && sub.children.length) {
+      for (const child of sub.children) {
+        const opt = document.createElement('option');
+        opt.value = child.id;
+        opt.textContent = (child.icon ? child.icon + ' ' : '') + child.name;
+        childSel.appendChild(opt);
+      }
+      childSel.style.display = '';
+    } else {
+      childSel.style.display = 'none';
+      // No child categories — subcategory IS the final selection
+      hidden.value = subIdVal;
+      updateCrumb();
+    }
+  }
+
+  function updateCrumb() {
+    if (!crumb) return;
+    const parts = [];
+    const mainNode  = CATEGORY_TREE.find(c => c.id === Number(mainSel.value));
+    if (mainNode) {
+      parts.push(mainNode.name);
+      const subNode = mainNode.children?.find(c => c.id === Number(subSel.value));
+      if (subNode) {
+        parts.push(subNode.name);
+        const childNode = subNode.children?.find(c => c.id === Number(childSel.value));
+        if (childNode) parts.push(childNode.name);
+      }
+    }
+    if (parts.length) {
+      crumb.textContent = '📂 ' + parts.join(' › ');
+      crumb.style.display = '';
+    } else {
+      crumb.style.display = 'none';
+    }
+  }
+
+  mainSel.addEventListener('change', () => {
+    hidden.value = mainSel.value;
+    updateCrumb();
+    populateSub(mainSel.value);
+  });
+
+  subSel.addEventListener('change', () => {
+    hidden.value = subSel.value;
+    updateCrumb();
+    populateChild(subSel.value);
+  });
+
+  childSel.addEventListener('change', () => {
+    hidden.value = childSel.value;
+    updateCrumb();
+  });
+
+  // Load categories and populate
+  loadCategories().then(populateMain);
+
+  // Expose setter so edit forms can pre-select a category by id
+  const key = mainId.replace('CatMain', '') + 'CatPicker';
+  window['_setCat_' + hiddenId] = async function(categoryId) {
+    if (!categoryId) return;
+    await loadCategories();
+    // Find ancestry
+    function findPath(nodes, targetId, path = []) {
+      for (const n of nodes) {
+        if (n.id === Number(targetId)) return [...path, n];
+        if (n.children) {
+          const found = findPath(n.children, targetId, [...path, n]);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+    const path = findPath(CATEGORY_TREE, categoryId);
+    if (!path) return;
+
+    populateMain();
+    if (path[0]) {
+      mainSel.value = path[0].id;
+      populateSub(path[0].id);
+    }
+    if (path[1]) {
+      subSel.value = path[1].id;
+      populateChild(path[1].id);
+    }
+    if (path[2]) {
+      childSel.value = path[2].id;
+    }
+    hidden.value = categoryId;
+    updateCrumb();
+  };
+}
+
+// Wire up both pickers once DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  initCascadePicker('sellerCatMain', 'sellerCatSub', 'sellerCatChild', 'sellerCategory', 'sellerCatBreadcrumb');
+  initCascadePicker('adminCatMain',  'adminCatSub',  'adminCatChild',  'adminCategory',  'adminCatBreadcrumb');
+});
+
+// ════════════════════════════════════════════════════════════════════
+// ADMIN CATEGORY MANAGER PANEL
+// Full CRUD + drag-to-reorder inside admin dashboard
+// ════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════
+// ADMIN CATEGORY MANAGER — Full CRUD + image upload + drag-reorder
+// ════════════════════════════════════════════════════════════════════
+
+window.openCategoryManager = async function() {
+  if (!document.getElementById('catManagerModal')) _buildCatManagerModal();
+  document.getElementById('catManagerModal').style.display = 'flex';
+  await _loadCatManagerTree();
+};
+
+function _buildCatManagerModal() {
+  const div = document.createElement('div');
+  div.id = 'catManagerModal';
+  div.style.cssText = 'display:none; position:fixed; inset:0; z-index:3000; background:rgba(0,0,0,0.9); align-items:flex-start; justify-content:center; overflow-y:auto; padding:16px;';
+  div.innerHTML = `
+    <div style="background:var(--surface); border:1px solid var(--border-strong); border-radius:18px;
+                padding:24px; max-width:920px; width:100%; margin:auto; margin-top:16px; position:relative;">
+      <button onclick="document.getElementById('catManagerModal').style.display='none';"
+              style="position:absolute;top:16px;right:16px;background:var(--surface-2);border:1px solid var(--border-strong);
+                     color:var(--white);border-radius:8px;padding:6px 14px;cursor:pointer;font-size:13px;">✕ Close</button>
+
+      <h3 style="font-family:var(--font-display); font-size:18px; margin-bottom:4px;">📂 Category Manager</h3>
+      <p style="color:var(--gray); font-size:12px; margin-bottom:18px;">
+        Build unlimited category levels. Drag rows to reorder. Deleting a parent removes all children.
+      </p>
+
+      <!-- Add / Edit Form -->
+      <div id="catMgrFormBox" style="background:var(--surface-2); border:1px solid var(--border-strong); border-radius:12px; padding:16px; margin-bottom:20px;">
+        <div style="font-size:12px; font-weight:700; color:var(--green-light); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px;" id="catMgrFormLabel">➕ Add New Category</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+          <div>
+            <label style="font-size:11px;color:var(--gray);display:block;margin-bottom:4px;">NAME *</label>
+            <input id="catMgrName" placeholder="e.g. Electronics" style="background:var(--surface-3);border:1px solid var(--border-strong);color:var(--white);border-radius:8px;padding:8px 10px;font-size:13px;width:100%;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--gray);display:block;margin-bottom:4px;">PARENT (blank = top level)</label>
+            <select id="catMgrParent" style="background:var(--surface-3);border:1px solid var(--border-strong);color:var(--white);border-radius:8px;padding:8px 10px;font-size:13px;width:100%;">
+              <option value="">— Top Level —</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--gray);display:block;margin-bottom:4px;">ICON (emoji)</label>
+            <input id="catMgrIcon" placeholder="📱" maxlength="8" style="background:var(--surface-3);border:1px solid var(--border-strong);color:var(--white);border-radius:8px;padding:8px 10px;font-size:18px;width:100%;text-align:center;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--gray);display:block;margin-bottom:4px;">BANNER IMAGE URL (optional)</label>
+            <input id="catMgrImageUrl" placeholder="https://…/image.jpg" style="background:var(--surface-3);border:1px solid var(--border-strong);color:var(--white);border-radius:8px;padding:8px 10px;font-size:12px;width:100%;">
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <button onclick="window._catMgrSave()" id="catMgrSaveBtn"
+            style="background:var(--green);color:#fff;border:none;border-radius:8px;padding:9px 22px;cursor:pointer;font-weight:700;font-size:13px;">
+            ➕ Add Category
+          </button>
+          <button onclick="window._catMgrCancelEdit()" id="catMgrCancelBtn" style="display:none;background:var(--surface-3);color:var(--gray);border:1px solid var(--border-strong);border-radius:8px;padding:9px 18px;cursor:pointer;font-size:13px;">
+            ✕ Cancel Edit
+          </button>
+          <input type="hidden" id="catMgrEditId" value="">
+        </div>
+      </div>
+
+      <!-- Category Tree -->
+      <div id="catMgrTree" style="font-size:13px; min-height:60px;"></div>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+async function _loadCatManagerTree() {
+  const treeEl    = document.getElementById('catMgrTree');
+  const parentSel = document.getElementById('catMgrParent');
+  if (!treeEl) return;
+  treeEl.innerHTML = '<div style="color:var(--gray);padding:16px;text-align:center;">Loading categories…</div>';
+  try {
+    const res  = await adminApiCall('/admin/categories/tree');
+    const tree = res.data.categories || [];
+
+    // Populate parent select
+    parentSel.innerHTML = '<option value="">— Top Level —</option>';
+    const editId = document.getElementById('catMgrEditId').value;
+    function addOpts(nodes, depth) {
+      for (const n of nodes) {
+        if (String(n.id) === String(editId)) continue; // can't parent to self
+        const opt = document.createElement('option');
+        opt.value = n.id;
+        opt.textContent = '\u00a0\u00a0'.repeat(depth) + (n.icon ? n.icon + ' ' : '') + n.name;
+        parentSel.appendChild(opt);
+        if (n.children && n.children.length) addOpts(n.children, depth + 1);
+      }
+    }
+    addOpts(tree, 0);
+
+    // Render tree
+    treeEl.innerHTML = tree.length ? '' : '<div style="color:var(--gray);padding:12px;text-align:center;">No categories yet. Add your first one above!</div>';
+    if (tree.length) {
+      treeEl.appendChild(_buildCatTreeEl(tree, 0));
+      _initCatDrag(treeEl);
+    }
+
+    // Keep the global tree fresh for the buyer browser
+    categoriesLoaded = false;
+    loadCategories();
+
+  } catch (e) {
+    treeEl.innerHTML = `<div style="color:#e74c3c;padding:12px;">Error loading categories: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function _buildCatTreeEl(nodes, depth) {
+  const group = document.createElement('div');
+  group.className = 'cat-mgr-group';
+  group.dataset.depth = depth;
+  group.style.cssText = (depth > 0 ? `margin-left:${Math.min(depth*20,60)}px; padding-left:12px; border-left:2px solid var(--border);` : '') + 'display:flex;flex-direction:column;gap:5px;margin-bottom:4px;';
+
+  for (const n of nodes) {
+    const row = document.createElement('div');
+    row.className = 'cat-mgr-row';
+    row.dataset.id = n.id;
+    row.dataset.parent = n.parent_id || '';
+    row.draggable = true;
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;cursor:default;user-select:none;';
+
+    const levelBadge = depth === 0
+      ? `<span style="font-size:9px;background:var(--green);color:#fff;border-radius:4px;padding:2px 6px;font-weight:700;">MAIN</span>`
+      : depth === 1
+      ? `<span style="font-size:9px;background:var(--surface-3);color:var(--gray);border-radius:4px;padding:2px 6px;border:1px solid var(--border-strong);">sub</span>`
+      : `<span style="font-size:9px;background:var(--surface);color:var(--gray);border-radius:4px;padding:2px 6px;border:1px solid var(--border);">child</span>`;
+
+    const imgHtml = n.image_url
+      ? `<img src="${escapeHtml(n.image_url)}" style="width:28px;height:28px;object-fit:cover;border-radius:6px;flex-shrink:0;" onerror="this.style.display='none'">`
+      : `<span style="font-size:22px;">${n.icon || '📁'}</span>`;
+
+    row.innerHTML = `
+      <span style="color:var(--border-strong);cursor:grab;font-size:18px;flex-shrink:0;" title="Drag to reorder">⠿</span>
+      ${imgHtml}
+      ${levelBadge}
+      <span style="flex:1;font-weight:600;color:var(--white);">${escapeHtml(n.name)}</span>
+      <span style="font-size:10px;color:var(--border-strong);">/${n.slug}</span>
+      <span style="font-size:10px;font-weight:600;color:${n.is_active ? 'var(--green-light)' : '#e74c3c'};">${n.is_active ? '✅' : '❌'}</span>
+      <button data-action="toggle" data-id="${n.id}" data-active="${n.is_active}"
+        style="background:var(--surface-3);border:1px solid var(--border-strong);color:var(--gray);border-radius:6px;padding:3px 9px;cursor:pointer;font-size:11px;flex-shrink:0;">
+        ${n.is_active ? 'Hide' : 'Show'}
+      </button>
+      <button data-action="edit" data-id="${n.id}" data-name="${escapeHtml(n.name)}" data-icon="${escapeHtml(n.icon||'')}" data-parent="${n.parent_id||''}" data-imgurl="${escapeHtml(n.image_url||'')}"
+        style="background:var(--surface-3);border:1px solid var(--border-strong);color:var(--white);border-radius:6px;padding:3px 9px;cursor:pointer;font-size:11px;flex-shrink:0;">✏️ Edit</button>
+      <button data-action="delete" data-id="${n.id}" data-name="${escapeHtml(n.name)}"
+        style="background:#e74c3c;border:none;color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:11px;flex-shrink:0;">🗑️</button>
+    `;
+
+    // Event delegation on the row
+    row.addEventListener('click', async function(e) {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const id     = btn.dataset.id;
+
+      if (action === 'toggle') {
+        const isActive = btn.dataset.active == '1' || btn.dataset.active === 'true';
+        try {
+          await adminApiCall(`/admin/categories/${id}`, { method:'PUT', body: JSON.stringify({ is_active: isActive ? 0 : 1 }) });
+          categoriesLoaded = false;
+          await _loadCatManagerTree();
+        } catch(ex) { showToast('Failed: ' + ex.message, 'error'); }
+      }
+      else if (action === 'edit') {
+        window._catMgrStartEdit(btn.dataset.id, btn.dataset.name, btn.dataset.icon, btn.dataset.parent, btn.dataset.imgurl);
+      }
+      else if (action === 'delete') {
+        window._catMgrDelete(btn.dataset.id, btn.dataset.name);
+      }
+    });
+
+    group.appendChild(row);
+    if (n.children && n.children.length) {
+      group.appendChild(_buildCatTreeEl(n.children, depth + 1));
+    }
+  }
+  return group;
+}
+
+function _initCatDrag(container) {
+  let dragId = null, dragEl = null;
+  container.querySelectorAll('.cat-mgr-row').forEach(row => {
+    row.addEventListener('dragstart', e => {
+      dragId = row.dataset.id;
+      dragEl = row;
+      row.style.opacity = '0.35';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => { if (dragEl) dragEl.style.opacity = '1'; dragEl = null; });
+    row.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; row.style.background = 'var(--surface-3)'; });
+    row.addEventListener('dragleave', () => { row.style.background = ''; });
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      row.style.background = '';
+      if (!dragId || dragId === row.dataset.id) return;
+      // Only reorder within the same parent group
+      const grp  = row.parentElement;
+      const rows = [...grp.querySelectorAll(':scope > .cat-mgr-row')];
+      const ids  = rows.map(r => r.dataset.id);
+      const fromIdx = ids.indexOf(String(dragId));
+      const toIdx   = ids.indexOf(row.dataset.id);
+      if (fromIdx < 0 || toIdx < 0) return;
+      // Rebuild position order
+      const newOrder = [...ids];
+      newOrder.splice(fromIdx, 1);
+      newOrder.splice(toIdx, 0, String(dragId));
+      const items = newOrder.map((id, i) => ({ id: Number(id), position: i }));
+      try {
+        await adminApiCall('/admin/categories/reorder', { method:'PUT', body: JSON.stringify({ items }) });
+        categoriesLoaded = false;
+        await _loadCatManagerTree();
+      } catch(ex) { showToast('Reorder failed: ' + ex.message, 'error'); }
+    });
+  });
+}
+
+window._catMgrStartEdit = function(id, name, icon, parentId, imageUrl) {
+  document.getElementById('catMgrEditId').value  = id;
+  document.getElementById('catMgrName').value    = name;
+  document.getElementById('catMgrIcon').value    = icon;
+  document.getElementById('catMgrParent').value  = parentId || '';
+  document.getElementById('catMgrImageUrl').value = imageUrl || '';
+  document.getElementById('catMgrFormLabel').textContent = '✏️ Editing: ' + name;
+  document.getElementById('catMgrSaveBtn').textContent   = '💾 Save Changes';
+  document.getElementById('catMgrSaveBtn').style.background = 'var(--gold)';
+  document.getElementById('catMgrSaveBtn').style.color   = '#111';
+  document.getElementById('catMgrCancelBtn').style.display = 'inline-flex';
+  document.getElementById('catMgrName').focus();
+  // Rebuild parent dropdown excluding self
+  _loadCatManagerTree();
+};
+
+window._catMgrCancelEdit = function() {
+  document.getElementById('catMgrEditId').value  = '';
+  document.getElementById('catMgrName').value    = '';
+  document.getElementById('catMgrIcon').value    = '';
+  document.getElementById('catMgrImageUrl').value = '';
+  document.getElementById('catMgrFormLabel').textContent = '➕ Add New Category';
+  document.getElementById('catMgrSaveBtn').textContent   = '➕ Add Category';
+  document.getElementById('catMgrSaveBtn').style.background = 'var(--green)';
+  document.getElementById('catMgrSaveBtn').style.color   = '#fff';
+  document.getElementById('catMgrCancelBtn').style.display = 'none';
+};
+
+window._catMgrSave = async function() {
+  const name     = document.getElementById('catMgrName').value.trim();
+  const parent   = document.getElementById('catMgrParent').value || null;
+  const icon     = document.getElementById('catMgrIcon').value.trim() || null;
+  const imageUrl = document.getElementById('catMgrImageUrl').value.trim() || null;
+  const editId   = document.getElementById('catMgrEditId').value;
+
+  if (!name) { showToast('Category name is required.', 'error'); return; }
+
+  try {
+    if (editId) {
+      await adminApiCall(`/admin/categories/${editId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, parent_id: parent, icon, image_url: imageUrl })
+      });
+      showToast('✅ Category updated!', 'success');
+    } else {
+      await adminApiCall('/admin/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name, parent_id: parent, icon, image_url: imageUrl })
+      });
+      showToast('✅ Category added!', 'success');
+    }
+    window._catMgrCancelEdit();
+    categoriesLoaded = false;
+    await _loadCatManagerTree();
+  } catch (e) { showToast('Failed: ' + e.message, 'error'); }
+};
+
+window._catMgrDelete = async function(id, name) {
+  if (!confirm(`Delete "${name}" and ALL its subcategories?\n\nProducts in this category will be unlinked but NOT deleted.`)) return;
+  try {
+    await adminApiCall(`/admin/categories/${id}?force=true`, { method: 'DELETE' });
+    categoriesLoaded = false;
+    showToast('Category deleted.', 'success');
+    await _loadCatManagerTree();
+  } catch (e) { showToast('Failed: ' + e.message, 'error'); }
+};
+
 // ════════════════════════════════════════════════════════════════════
 
 window.toggleVariantBuilder = function(enabled) {

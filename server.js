@@ -20,6 +20,7 @@ const withdrawalRoutes = require('./routes/withdrawalRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const intasendRoutes = require('./routes/intasendRoutes');
 const productVariantRoutes = require('./routes/productVariantRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
 
 const app = express();
 
@@ -69,6 +70,7 @@ app.use('/api/withdrawals', withdrawalRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/intasend', intasendRoutes);
 app.use('/api', productVariantRoutes);
+app.use('/api', categoryRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.originalUrl}` }));

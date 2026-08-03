@@ -185,6 +185,60 @@
 
     nav.pages button:not(.active):hover{ color:var(--white); }
 
+    /* ── Mobile: keep header fixed at top, nav fixed at bottom ── */
+    @media (max-width:640px){
+      header.topbar{
+        position: fixed; top:0; left:0; right:0; z-index:90;
+        /* Clamp height so only the logo row shows at top;
+           the nav is separately fixed to the bottom */
+        padding: 8px 4vw;
+        flex-wrap: nowrap;
+      }
+      /* Hide the nav from inside the header on mobile —
+         it renders as the fixed bottom tab bar instead */
+      header.topbar nav.pages{
+        display: none;
+      }
+      /* Invisible spacer = header height on mobile */
+      #headerSpacer{ display:block; height:60px; }
+      /* Push all page content above the bottom tab bar */
+      .pages-wrap, #shopPage, .page{ padding-bottom:72px; }
+      /* Show the bottom nav */
+      nav.pages#bottomNav{
+        display: flex !important;
+      }
+    }
+
+    @media (min-width:641px){
+      #headerSpacer{ display:none; }
+      nav.pages#bottomNav{ display:none !important; }
+    }
+
+    /* ── Mobile: fixed bottom tab bar ── */
+    @media (max-width:640px){
+      nav.pages#bottomNav{
+        position:fixed; bottom:0; left:0; right:0; z-index:100;
+        background:var(--surface); border-top:1px solid var(--border-strong);
+        border-radius:0; padding:0; gap:0;
+        display:flex; flex-wrap:nowrap; overflow-x:auto;
+        scrollbar-width:none; -ms-overflow-style:none;
+        padding-bottom:env(safe-area-inset-bottom, 0px);
+      }
+      nav.pages#bottomNav::-webkit-scrollbar{ display:none; }
+      nav.pages#bottomNav button{
+        flex:0 0 auto; min-width:60px;
+        flex-direction:column; align-items:center; justify-content:center;
+        gap:2px; padding:8px 8px 6px;
+        border-radius:0; font-size:10px; font-weight:600;
+        background:transparent; border:none; color:var(--gray);
+        transition:all 0.2s ease;
+      }
+      nav.pages#bottomNav button .ic{ font-size:22px; }
+      nav.pages#bottomNav button .lbl{ display:block; font-size:9.5px; line-height:1; }
+      nav.pages#bottomNav button.active{ color:var(--green); }
+      nav.pages#bottomNav button.active .ic{ transform:scale(1.15); }
+    }
+
 
 
     .header-cart-btn{ position:relative; background:var(--surface-2); border:1px solid var(--border-strong); width:42px; height:42px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--white); transition:border-color 0.2s ease; }
@@ -249,9 +303,33 @@
 
     .grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(210px,1fr)); gap:16px; }
 
+    /* ── Mobile: 2-column product grid like top Kenyan marketplaces ── */
+    @media (max-width:640px){
+      .grid{ grid-template-columns:1fr 1fr; gap:8px; padding:0 2px; }
+    }
+
     .card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px; display:flex; flex-direction:column; gap:10px; transition:border-color 0.2s ease, transform 0.2s ease; position:relative; }
 
     .card:hover{ border-color:var(--border-strong); transform:translateY(-2px); }
+
+    /* ── Slimmer mobile card ── */
+    @media (max-width:640px){
+      .card{ padding:8px; border-radius:12px; gap:5px; }
+      .card h3{ font-size:12.5px; line-height:1.2; margin:0; }
+      .card .desc{
+    font-size:10.5px;
+    display:-webkit-box;
+    line-clamp:2;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+}
+      .price{ font-size:14px; }
+      .price-strike{ font-size:10px; }
+      .add-btn{ font-size:11px; padding:7px 4px; border-radius:8px; }
+      .card img{ height:130px !important; border-radius:8px !important; }
+      .card .emoji-badge{ width:100%; height:130px; border-radius:8px; font-size:48px; }
+    }
 
     .card .hot-tag{ position:absolute; top:14px; right:14px; background:var(--gold); color:#111; font-family:var(--font-mono); font-size:10px; font-weight:600; padding:3px 8px; border-radius:6px; letter-spacing:0.5px; }
 
@@ -475,7 +553,7 @@
 
 
 
-    @media (max-width:640px){ nav.pages .lbl{ display:none; } nav.pages button{ padding:9px 12px; } .float-btn{ width:50px; height:50px; font-size:21px; } #userBtn{ width:50px; height:50px; font-size:21px; bottom:85px; } }
+    @media (max-width:640px){ .float-btn{ width:50px; height:50px; font-size:21px; } #userBtn{ width:50px; height:50px; font-size:21px; bottom:85px; } }
 
   
 
@@ -1393,7 +1471,20 @@
 
   </header>
 
+  <!-- Mobile spacer: reserves space equal to the fixed header height so content starts below it -->
+  <div id="headerSpacer"></div>
 
+  <!-- Mobile bottom tab bar (separate from header so logo is never covered) -->
+  <nav class="pages" id="bottomNav" style="display:none;">
+    <button class="page-btn active" data-page="shop"><span class="ic">🛍️</span><span class="lbl">Shop</span></button>
+    <button class="page-btn" data-page="cart"><span class="ic">🧺</span><span class="lbl">Cart</span></button>
+    <button class="page-btn" data-page="wishlist"><span class="ic">❤️</span><span class="lbl">Wishlist</span></button>
+    <button class="page-btn" data-page="orders"><span class="ic">📋</span><span class="lbl">Orders</span></button>
+    <button class="page-btn" data-page="contact"><span class="ic">📞</span><span class="lbl">Contact</span></button>
+    <button class="page-btn" data-page="request"><span class="ic">❓</span><span class="lbl">Request</span></button>
+    <button class="page-btn" data-page="seller"><span class="ic">🏪</span><span class="lbl">Seller</span></button>
+    <button class="page-btn" data-page="admin" id="adminNavBtnBottom" style="display:none;"><span class="ic">⚙️</span><span class="lbl">Admin</span></button>
+  </nav>
 
   <main>
 
@@ -1779,9 +1870,9 @@
 
         <div class="contact-card"><span class="ic">📍</span><h4>Visit us</h4><p>Runyejes, Embu County, Kenya.</p></div>
 
-        <div class="contact-card"><span class="ic">☎️</span><h4>Call us</h4><p>+254 795 476 405<br>Mon – Sun, 24HRS AVAILABLE</p></div>
+        <div class="contact-card"><span class="ic">☎️</span><h4>Call us</h4><p>+254 713 721 775<br>+254 112 396 258<br>+254 793 072 299<br>Mon – Sun, 24HRS AVAILABLE</p></div>
 
-        <div class="contact-card"><span class="ic"><svg width="28" height="28" viewbox="0 0 32 32" fill="#25D366" xmlns="http://www.w3.org/2000/svg"><path d="M16.001 2.667C8.637 2.667 2.667 8.637 2.667 16c0 2.578.719 4.987 1.967 7.037L2.667 29.333l6.463-1.936A13.28 13.28 0 0016 29.333c7.364 0 13.334-5.97 13.334-13.333S23.365 2.667 16.001 2.667zm0 24.222a11.11 11.11 0 01-5.897-1.688l-.423-.252-4.4 1.318 1.35-4.29-.276-.44a11.089 11.089 0 01-1.762-6.03c0-6.135 4.983-11.118 11.11-11.118 6.129 0 11.112 4.983 11.112 11.118 0 6.132-4.983 11.382-11.114 11.382zm6.116-8.31c-.335-.168-1.98-.977-2.287-1.09-.307-.112-.53-.168-.754.169-.223.335-.865 1.089-1.06 1.313-.196.224-.391.252-.727.084-.335-.168-1.414-.521-2.694-1.663-.996-.888-1.668-1.984-1.863-2.32-.196-.335-.021-.516.147-.683.15-.15.335-.391.502-.587.168-.196.224-.335.335-.559.112-.223.056-.419-.028-.587-.084-.168-.754-1.816-1.033-2.487-.272-.653-.549-.564-.754-.575-.196-.01-.419-.012-.643-.012-.224 0-.587.084-.895.419-.307.335-1.173 1.145-1.173 2.793 0 1.648 1.201 3.24 1.369 3.463.168.224 2.363 3.606 5.726 5.058.8.345 1.425.552 1.912.706.803.255 1.534.219 2.112.133.644-.096 1.98-.81 2.259-1.593.28-.783.28-1.454.196-1.594-.084-.14-.307-.224-.643-.391z"/></svg></span><h4>WhatsApp</h4><p>Fastest way to reach us for questions or special orders.</p><a class="wa-link" href="https://wa.me/254795476405" target="_blank" rel="noopener">Chat on WhatsApp →</a></div>
+        <div class="contact-card"><span class="ic"><svg width="28" height="28" viewbox="0 0 32 32" fill="#25D366" xmlns="http://www.w3.org/2000/svg"><path d="M16.001 2.667C8.637 2.667 2.667 8.637 2.667 16c0 2.578.719 4.987 1.967 7.037L2.667 29.333l6.463-1.936A13.28 13.28 0 0016 29.333c7.364 0 13.334-5.97 13.334-13.333S23.365 2.667 16.001 2.667zm0 24.222a11.11 11.11 0 01-5.897-1.688l-.423-.252-4.4 1.318 1.35-4.29-.276-.44a11.089 11.089 0 01-1.762-6.03c0-6.135 4.983-11.118 11.11-11.118 6.129 0 11.112 4.983 11.112 11.118 0 6.132-4.983 11.382-11.114 11.382zm6.116-8.31c-.335-.168-1.98-.977-2.287-1.09-.307-.112-.53-.168-.754.169-.223.335-.865 1.089-1.06 1.313-.196.224-.391.252-.727.084-.335-.168-1.414-.521-2.694-1.663-.996-.888-1.668-1.984-1.863-2.32-.196-.335-.021-.516.147-.683.15-.15.335-.391.502-.587.168-.196.224-.335.335-.559.112-.223.056-.419-.028-.587-.084-.168-.754-1.816-1.033-2.487-.272-.653-.549-.564-.754-.575-.196-.01-.419-.012-.643-.012-.224 0-.587.084-.895.419-.307.335-1.173 1.145-1.173 2.793 0 1.648 1.201 3.24 1.369 3.463.168.224 2.363 3.606 5.726 5.058.8.345 1.425.552 1.912.706.803.255 1.534.219 2.112.133.644-.096 1.98-.81 2.259-1.593.28-.783.28-1.454.196-1.594-.084-.14-.307-.224-.643-.391z"/></svg></span><h4>WhatsApp</h4><p>Fastest way to reach us for questions or special orders.</p><a class="wa-link" href="https://wa.me/254713721775" target="_blank" rel="noopener">Chat on WhatsApp (0713 721 775) →</a><br><a class="wa-link" href="https://wa.me/254112396258" target="_blank" rel="noopener">Chat on WhatsApp (0112 396 258) →</a><br><a class="wa-link" href="https://wa.me/254793072299" target="_blank" rel="noopener">Chat on WhatsApp (0793 072 299) →</a></div>
 
       </div>
 
@@ -1973,6 +2064,8 @@
 
             <div class="field"><label>Product Name *</label><input type="text" id="sellerName" placeholder="Product name"></div>
 
+            <div class="field"><label>Brand (optional)</label><input type="text" id="sellerBrand" placeholder="e.g. Samsung, Nike"></div>
+
             <div class="field"><label>Price (KES) *</label><input type="number" id="sellerPrice" placeholder="850"></div>
 
             <div class="field"><label>Stock Quantity *</label><input type="number" id="sellerStock" placeholder="20" min="0" step="1"></div>
@@ -2032,6 +2125,39 @@
           <div class="field"><label>Product Image (optional - a relevant photo is shown automatically until you upload one)</label><div style="display:flex; gap:10px; flex-wrap:wrap;"><label style="flex:1; min-width:140px; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:10px; padding:10px; text-align:center; cursor:pointer; color:var(--white);">🖼️ Choose from Gallery<input type="file" id="sellerImageFile" accept="image/*" style="display:none;"></label><label style="flex:1; min-width:140px; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:10px; padding:10px; text-align:center; cursor:pointer; color:var(--white);">📷 Take Photo<input type="file" id="sellerImageCameraFile" accept="image/*" capture="environment" style="display:none;"></label></div><div id="sellerImagePreview" style="margin-top:10px; display:none;"><img id="sellerImagePreviewImg" src="#" alt="Preview" style="max-width:200px; max-height:200px; border-radius:10px; border:1px solid var(--border-strong); object-fit:cover;"><button onclick="removeImage()" style="background:#ff6b6b; border:none; color:white; padding:4px 10px; border-radius:6px; cursor:pointer; margin-top:5px;">✕ Remove</button></div></div>
 
           <div class="field"><label>Product Video (optional)</label><input type="file" id="sellerVideoFile" accept="video/*" style="padding:10px; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:10px; width:100%; color:var(--white);"><div id="sellerVideoPreview" style="margin-top:10px; display:none;"><video id="sellerVideoPreviewVideo" src="" controls style="max-width:200px; max-height:200px; border-radius:10px; border:1px solid var(--border-strong);"></video><button onclick="removeVideo()" style="background:#ff6b6b; border:none; color:white; padding:4px 10px; border-radius:6px; cursor:pointer; margin-top:5px;">✕ Remove</button></div></div>
+
+          <!-- ── Product Variants Builder ─────────────────────────── -->
+          <div id="variantBuilderSection" style="margin-top:18px; border-top:1px solid var(--border); padding-top:16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+              <h4 style="font-family:var(--font-display); font-size:15px; margin:0;">🎛️ Product Variants <span style="font-size:11px; font-weight:400; color:var(--gray);">(optional — for products with multiple options)</span></h4>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; color:var(--gray);">
+                  <input type="checkbox" id="sellerHasVariants" style="width:16px; height:16px;" onchange="window.toggleVariantBuilder(this.checked)"> Enable Variants
+                </label>
+              </div>
+            </div>
+
+            <div id="variantBuilderBody" style="display:none;">
+
+              <!-- Step 1: Define attribute names -->
+              <div style="background:var(--surface-2); border-radius:10px; padding:14px; margin-bottom:14px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:8px; color:var(--white);">Step 1 — What options does your product have?</div>
+                <div style="font-size:12px; color:var(--gray); margin-bottom:10px;">e.g. Colour, Size, Storage, Weight, RAM, Material, Flavour, Style …</div>
+                <div id="attrInputsWrap" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
+                <button type="button" onclick="window.addAttributeInput()" style="background:var(--surface-3); color:var(--green); border:1px solid var(--green); padding:6px 14px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;">+ Add Option Type</button>
+              </div>
+
+              <!-- Step 2: Add individual variant rows -->
+              <div style="background:var(--surface-2); border-radius:10px; padding:14px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:4px; color:var(--white);">Step 2 — Add each variant combination</div>
+                <div style="font-size:12px; color:var(--gray); margin-bottom:12px;">Each row = one purchasable combination (e.g. Black / EU41 / 128GB)</div>
+                <div id="variantRowsWrap"></div>
+                <button type="button" onclick="window.addVariantRow()" style="background:var(--green); color:#fff; border:none; padding:8px 18px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600; margin-top:8px;">+ Add Variant</button>
+              </div>
+
+            </div>
+          </div>
+          <!-- ── End Variants Builder ─────────────────────────────── -->
 
           <button id="sellerSubmitBtn" class="pay-btn" style="margin-top:10px;">➕ Add Product</button>
 
@@ -2605,7 +2731,7 @@
 
 
 
-  <a id="waFloat" class="float-btn" href="https://wa.me/254795476405" target="_blank" rel="noopener" title="Chat on WhatsApp"><svg width="26" height="26" viewbox="0 0 32 32" fill="#fff" xmlns="http://www.w3.org/2000/svg"><path d="M16.001 2.667C8.637 2.667 2.667 8.637 2.667 16c0 2.578.719 4.987 1.967 7.037L2.667 29.333l6.463-1.936A13.28 13.28 0 0016 29.333c7.364 0 13.334-5.97 13.334-13.333S23.365 2.667 16.001 2.667zm0 24.222a11.11 11.11 0 01-5.897-1.688l-.423-.252-4.4 1.318 1.35-4.29-.276-.44a11.089 11.089 0 01-1.762-6.03c0-6.135 4.983-11.118 11.11-11.118 6.129 0 11.112 4.983 11.112 11.118 0 6.132-4.983 11.382-11.114 11.382zm6.116-8.31c-.335-.168-1.98-.977-2.287-1.09-.307-.112-.53-.168-.754.169-.223.335-.865 1.089-1.06 1.313-.196.224-.391.252-.727.084-.335-.168-1.414-.521-2.694-1.663-.996-.888-1.668-1.984-1.863-2.32-.196-.335-.021-.516.147-.683.15-.15.335-.391.502-.587.168-.196.224-.335.335-.559.112-.223.056-.419-.028-.587-.084-.168-.754-1.816-1.033-2.487-.272-.653-.549-.564-.754-.575-.196-.01-.419-.012-.643-.012-.224 0-.587.084-.895.419-.307.335-1.173 1.145-1.173 2.793 0 1.648 1.201 3.24 1.369 3.463.168.224 2.363 3.606 5.726 5.058.8.345 1.425.552 1.912.706.803.255 1.534.219 2.112.133.644-.096 1.98-.81 2.259-1.593.28-.783.28-1.454.196-1.594-.084-.14-.307-.224-.643-.391z"/></svg></a>
+  <a id="waFloat" class="float-btn" href="https://wa.me/254713721775" target="_blank" rel="noopener" title="Chat on WhatsApp"><svg width="26" height="26" viewbox="0 0 32 32" fill="#fff" xmlns="http://www.w3.org/2000/svg"><path d="M16.001 2.667C8.637 2.667 2.667 8.637 2.667 16c0 2.578.719 4.987 1.967 7.037L2.667 29.333l6.463-1.936A13.28 13.28 0 0016 29.333c7.364 0 13.334-5.97 13.334-13.333S23.365 2.667 16.001 2.667zm0 24.222a11.11 11.11 0 01-5.897-1.688l-.423-.252-4.4 1.318 1.35-4.29-.276-.44a11.089 11.089 0 01-1.762-6.03c0-6.135 4.983-11.118 11.11-11.118 6.129 0 11.112 4.983 11.112 11.118 0 6.132-4.983 11.382-11.114 11.382zm6.116-8.31c-.335-.168-1.98-.977-2.287-1.09-.307-.112-.53-.168-.754.169-.223.335-.865 1.089-1.06 1.313-.196.224-.391.252-.727.084-.335-.168-1.414-.521-2.694-1.663-.996-.888-1.668-1.984-1.863-2.32-.196-.335-.021-.516.147-.683.15-.15.335-.391.502-.587.168-.196.224-.335.335-.559.112-.223.056-.419-.028-.587-.084-.168-.754-1.816-1.033-2.487-.272-.653-.549-.564-.754-.575-.196-.01-.419-.012-.643-.012-.224 0-.587.084-.895.419-.307.335-1.173 1.145-1.173 2.793 0 1.648 1.201 3.24 1.369 3.463.168.224 2.363 3.606 5.726 5.058.8.345 1.425.552 1.912.706.803.255 1.534.219 2.112.133.644-.096 1.98-.81 2.259-1.593.28-.783.28-1.454.196-1.594-.084-.14-.307-.224-.643-.391z"/></svg></a>
 
   <button id="cartFloat" class="float-btn" title="View cart">🧺<span class="badge hidden" id="floatBadge">0</span></button>
 
@@ -5227,42 +5353,12 @@ var lastDeliveryPlan = null;
 
 // ============ GLOBAL VARIABLES ============
 
-let PRODUCTS = [
-
-  {id: 1, name: "Necklace", price: 1000, weight: 0.5, category: "fashion", desc: "Beautiful necklace", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 2, name: "Purple Tea", price: 2000, weight: 1.0, category: "grocery", desc: "Purple tea leaves", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 3, name: "Raw Macadamia", price: 3000, weight: 2.5, category: "grocery", desc: "Fresh macadamia", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 4, name: "Wildflower Honey", price: 4000, weight: 1.5, category: "grocery", desc: "Pure honey", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 5, name: "Avocado Basket", price: 5000, weight: 5.0, category: "grocery", desc: "Fresh avocados", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 6, name: "Sukuma Wiki", price: 6000, weight: 3.0, category: "grocery", desc: "Fresh greens", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 7, name: "Bluetooth Speaker", price: 7000, weight: 1.2, category: "electronics", desc: "Portable speaker", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 8, name: "Smartphone", price: 8000, weight: 0.3, category: "electronics", desc: "Smart phone", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 9, name: "Wireless Earbuds", price: 9000, weight: 0.2, category: "electronics", desc: "Wireless earbuds", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 10, name: "LED Desk Lamp", price: 10000, weight: 2.0, category: "electronics", desc: "Desk lamp", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 11, name: "Solar Charger", price: 11000, weight: 0.8, category: "electronics", desc: "Solar charger", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 12, name: "Kitenge Dress", price: 12000, weight: 0.6, category: "fashion", desc: "Ankara dress", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 13, name: "Leather Sandals", price: 13000, weight: 0.8, category: "fashion", desc: "Leather sandals", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 14, name: "Woven Sisal Bag", price: 14000, weight: 1.5, category: "fashion", desc: "Sisal bag", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 15, name: "Men's Kitenge Shirt", price: 15000, weight: 0.4, category: "fashion", desc: "Kitenge shirt", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null},
-
-  {id: 16, name: "Polarized Sunglasses", price: 16000, weight: 0.1, category: "fashion", desc: "Sunglasses", image: "", hot: false, rating: 0, numReviews: 0, sellerEmail: null}
-
-];
-
+// Products start empty - populated from the backend API by
+// loadProductsFromApi() below. Previously this held demo/seed data
+// which caused a 3-second flash of old items before the real list
+// arrived. An empty array means the shop shows a loading state
+// instead of misleading stale content.
+let PRODUCTS = [];
 
 
 const CATEGORIES = [
@@ -5469,13 +5565,11 @@ let searchTerm = "";
 let currentUser = null;
 
 // ---------- Backend API connection ----------
-// Points at your local backend from embu-backend-final. Change this to
-// your real domain once deployed (e.g. https://api.embumarketplace.com/api).
-// Automatically uses whatever host the page itself was opened with
-// (localhost, 127.0.0.1, or a LAN IP like 192.168.x.x) instead of a
-// hardcoded address - so this never needs manual updating again just
-// because you opened the page a different way than last time.
-const API_BASE = `http://${window.location.hostname || 'localhost'}:5000/api`;
+// Points at the live backend deployed on Render. If you ever run the
+// page locally against your own laptop's backend again, temporarily swap
+// this back to the localhost line below it.
+const API_BASE = 'https://embu-marketplace-backend.onrender.com/api';
+// const API_BASE = `http://${window.location.hostname || 'localhost'}:5000/api`;
 
 // Only the JWT lives in localStorage now - the actual user data is always
 // refetched from the server (via /api/auth/me) so it can never go stale
@@ -5501,7 +5595,11 @@ async function apiCall(endpoint, options = {}) {
     throw new Error('Could not reach the server. Check your connection and that the backend is running.');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(data.message || `Request failed (${res.status})`);
+    err.data = data.data;
+    throw err;
+  }
   return data;
 }
 
@@ -7208,19 +7306,13 @@ async function loadUser() {
     }
 
     const adminBtn = document.getElementById('adminNavBtn');
+    const adminBtnBottom = document.getElementById('adminNavBtnBottom');
 
     if (adminBtn) {
-
-      if (adminToken) {
-
-        adminBtn.style.display = 'inline-flex';
-
-      } else {
-
-        adminBtn.style.display = 'none';
-
-      }
-
+      adminBtn.style.display = adminToken ? 'inline-flex' : 'none';
+    }
+    if (adminBtnBottom) {
+      adminBtnBottom.style.display = adminToken ? 'flex' : 'none';
     }
 
   }
@@ -7393,8 +7485,7 @@ async function loadUser() {
       showToast('Welcome back!', 'success');
       closeAuth();
       updateUserUI();
-      goToPage('seller');
-      renderSellerRegistration();
+      goToPage('shop');
     } else {
       const referral_code = document.getElementById('authReferralCode')?.value.trim().toUpperCase() || undefined;
       const result = await apiCall('/auth/register', {
@@ -7417,8 +7508,7 @@ async function loadUser() {
       showToast('Account created successfully!', 'success');
       closeAuth();
       updateUserUI();
-      goToPage('seller');
-      renderSellerRegistration();
+      goToPage('shop');
     }
   } catch (err) {
     showToast(err.message, 'error');
@@ -8092,6 +8182,8 @@ function renderSellerProductsUI() {
 
           <button class="seller-edit-btn" data-id="${p.id}" style="background:var(--surface-3); border:none; color:var(--white); padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">✏️ Edit</button>
 
+          <button class="seller-variants-btn" data-id="${p.id}" data-name="${escapeHtml(p.name)}" style="background:var(--surface-3); border:1px solid var(--border-strong); color:var(--green); padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">🎛️ Variants</button>
+
           <button class="seller-delete-btn" data-id="${p.id}" style="background:var(--surface-3); border:none; color:#ff6b6b; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">🗑️ Delete</button>
 
         </div>
@@ -8101,6 +8193,10 @@ function renderSellerProductsUI() {
     `).join("");
 
     list.querySelectorAll(".seller-edit-btn").forEach(btn => btn.addEventListener("click", () => editSellerProduct(parseInt(btn.dataset.id, 10))));
+
+    list.querySelectorAll(".seller-variants-btn").forEach(btn => btn.addEventListener("click", () => {
+      window.loadAdminVariants(parseInt(btn.dataset.id, 10), btn.dataset.name);
+    }));
 
     list.querySelectorAll(".seller-delete-btn").forEach(btn => btn.addEventListener("click", () => deleteSellerProduct(parseInt(btn.dataset.id, 10))));
 
@@ -8500,6 +8596,8 @@ function bulkUploadProducts() {
 
     const desc = document.getElementById("sellerDesc").value.trim();
 
+    const brand = (document.getElementById("sellerBrand")?.value || '').trim() || null;
+
     const image = uploadedImage;
 
     const video = uploadedVideo;
@@ -8514,9 +8612,18 @@ const category = document.getElementById("sellerCategory").value;
 
     if (isNaN(stock) || stock < 0) { showToast("Please enter a valid stock quantity.", "error"); return; }
 
+    // Collect variants if enabled
+    const hasVariants = document.getElementById("sellerHasVariants")?.checked;
+    let variantPayload = null;
+    if (hasVariants) {
+      variantPayload = window._collectVariantPayload();
+      if (!variantPayload) return; // validation failed inside
+    }
+
     const payload = {
       name, price, original_price: originalPrice, category, hot, description: desc,
-      image: image || undefined, video: video || undefined, weight, fragile, stock
+      image: image || undefined, video: video || undefined, weight, fragile, stock,
+      brand: brand || undefined, has_variants: hasVariants ? 1 : 0
     };
 
     const originalBtnText = submitBtn.textContent;
@@ -8524,12 +8631,51 @@ const category = document.getElementById("sellerCategory").value;
     submitBtn.textContent = editingProductId ? "Updating..." : "Adding...";
 
     try {
+      let savedProductId = editingProductId;
       if (editingProductId) {
         await apiCall(`/products/${editingProductId}`, { method: 'PUT', body: JSON.stringify(payload) });
         showToast("Product updated successfully!", "success");
       } else {
-        await apiCall('/products', { method: 'POST', body: JSON.stringify(payload) });
+        const res = await apiCall('/products', { method: 'POST', body: JSON.stringify(payload) });
+        savedProductId = res.data?.product?.id;
         showToast("Product added successfully!", "success");
+      }
+
+      // Save variants if present
+      if (variantPayload && savedProductId) {
+        try {
+          // Save attribute names
+          await apiCall(`/products/${savedProductId}/attributes`, {
+            method: 'PUT',
+            body: JSON.stringify({ attributes: variantPayload.attributeNames })
+          });
+          // Get back the attribute ids
+          const attrRes = await apiCall(`/products/${savedProductId}/variants`);
+          const attrs = attrRes?.data?.attributes || [];
+          const attrMap = {}; // name → id
+          for (const a of attrs) attrMap[a.name] = a.id;
+
+          // Save each variant row
+          for (const vRow of variantPayload.variants) {
+            const options = vRow.options.map(o => ({
+              attribute_id: attrMap[o.attrName],
+              value: o.value
+            })).filter(o => o.attribute_id && o.value);
+            await apiCall(`/products/${savedProductId}/variants`, {
+              method: 'POST',
+              body: JSON.stringify({
+                price: vRow.price,
+                original_price: vRow.original_price || null,
+                stock: vRow.stock,
+                sku: vRow.sku || null,
+                options
+              })
+            });
+          }
+          showToast(`✅ ${variantPayload.variants.length} variants saved!`, "success");
+        } catch (ve) {
+          showToast('⚠️ Product saved but variants failed: ' + ve.message, 'error');
+        }
       }
     } catch (err) {
       showToast('⚠️ ' + err.message, 'error');
@@ -8547,6 +8693,8 @@ const category = document.getElementById("sellerCategory").value;
     document.getElementById("sellerFormTitle").textContent = t("addNewProductTitle");
 
     document.getElementById("sellerName").value = "";
+
+    if (document.getElementById("sellerBrand")) document.getElementById("sellerBrand").value = "";
 
     if (document.getElementById("sellerStock")) document.getElementById("sellerStock").value = "";
 
@@ -8567,6 +8715,12 @@ const category = document.getElementById("sellerCategory").value;
     document.getElementById("sellerImagePreview").style.display = 'none';
 
     document.getElementById("sellerVideoPreview").style.display = 'none';
+
+    // Reset variant builder
+    if (document.getElementById("sellerHasVariants")) {
+      document.getElementById("sellerHasVariants").checked = false;
+      window.toggleVariantBuilder(false);
+    }
 
     submitBtn.disabled = false;
 
@@ -8731,6 +8885,9 @@ async function renderAdminProducts() {
             ? `<button class="admin-unhide-btn" data-id="${p.id}" style="background:var(--green); border:none; color:white; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">👁️ Unhide</button>`
             : `<button class="admin-hide-btn" data-id="${p.id}" style="background:var(--surface-3); border:none; color:#ff6b6b; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">🚫 Hide</button>`
           }
+          <button onclick="window.loadAdminVariants(${p.id}, '${escapeHtml(p.name).replace(/'/g, "\\'")}');"
+            style="background:var(--surface-3); border:1px solid var(--border-strong); color:var(--green); padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">🎛️ Variants</button>
+          <button class="admin-delete-product-btn" data-id="${p.id}" data-name="${escapeHtml(p.name)}" style="background:#f44336; border:none; color:white; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;">🗑️ Delete</button>
 
         </div>
 
@@ -8755,6 +8912,28 @@ async function renderAdminProducts() {
       try {
         await adminApiCall(`/products/admin/${id}/unhide`, { method: 'PUT' });
         showToast("Product is visible on the storefront again.", "success");
+        renderAdminProducts();
+      } catch (err) {
+        showToast('⚠️ ' + err.message, 'error');
+      }
+    }));
+
+    // Permanently removes a product that violates platform standards.
+    // Unlike Hide (reversible), this can't be undone by the seller - so
+    // it asks for a short reason (sent to the seller as a notification)
+    // and a hard confirmation before calling the backend.
+    list.querySelectorAll(".admin-delete-product-btn").forEach(btn => btn.addEventListener("click", async function() {
+      const id = this.dataset.id;
+      const name = this.dataset.name;
+      if (!confirm(`Permanently delete "${name}"? This cannot be undone - use Hide instead if you just want to temporarily remove it.`)) return;
+      const reason = prompt(`Why is "${name}" being removed? (This will be sent to the seller. Leave blank for a generic message.)`, '');
+      if (reason === null) return; // cancelled the prompt
+      try {
+        await adminApiCall(`/products/admin/${id}`, {
+          method: 'DELETE',
+          body: JSON.stringify({ reason: reason.trim() || undefined })
+        });
+        showToast(`"${name}" permanently deleted.`, "success");
         renderAdminProducts();
       } catch (err) {
         showToast('⚠️ ' + err.message, 'error');
@@ -9464,7 +9643,7 @@ window.loadManualData = loadManualData;
 
 
 
-  document.getElementById("adminSubmitBtn").addEventListener("click", function() {
+  document.getElementById("adminSubmitBtn").addEventListener("click", async function() {
 
     const name = document.getElementById("adminName").value.trim();
 
@@ -9482,31 +9661,42 @@ window.loadManualData = loadManualData;
 
     if (!name || !price || !desc) { showToast("Please fill in all required fields.", "error"); return; }
 
-    if (editingProductId) {
+    const submitBtn = this;
+    submitBtn.disabled = true;
 
-      const index = PRODUCTS.findIndex(p => p.id === editingProductId);
+    try {
+      if (editingProductId) {
 
-      if (index > -1) { PRODUCTS[index] = { ...PRODUCTS[index], name, price, originalPrice, category, image: image || PRODUCTS[index].image, hot, desc }; showToast("Product updated successfully!", "success"); }
+        await adminApiCall(`/products/admin/${editingProductId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ name, price, original_price: originalPrice, category, ...(image ? { image } : {}), hot, description: desc })
+        });
+        showToast("Product updated successfully!", "success");
 
-      editingProductId = null;
+        editingProductId = null;
 
-      document.getElementById("adminSubmitBtn").textContent = "➕ Add Product";
+        document.getElementById("adminSubmitBtn").textContent = "➕ Add Product";
 
-      document.getElementById("adminCancelBtn").style.display = "none";
+        document.getElementById("adminCancelBtn").style.display = "none";
 
-      document.getElementById("adminFormTitle").textContent = t("addNewProductTitle");
+        document.getElementById("adminFormTitle").textContent = t("addNewProductTitle");
 
-    } else {
+      } else {
 
-      const newId = PRODUCTS.length > 0 ? Math.max(...PRODUCTS.map(p => p.id)) + 1 : 1;
+        await adminApiCall('/products/admin', {
+          method: 'POST',
+          body: JSON.stringify({ name, price, original_price: originalPrice, category, image, hot, description: desc })
+        });
+        showToast("Product added successfully!", "success");
 
-      PRODUCTS.push({ id: newId, name, price, originalPrice, category, image, hot, desc, rating:0, numReviews:0, sellerEmail: null, county: null });
-
-      showToast("Product added successfully!", "success");
-
+      }
+    } catch (err) {
+      showToast('⚠️ ' + err.message, 'error');
+      submitBtn.disabled = false;
+      return;
     }
 
-    try { localStorage.setItem('KC_products', JSON.stringify(PRODUCTS)); } catch(e) { console.error('Could not save products:', e); showToast('⚠️ Product saved but storage is full - consider using a smaller image.', 'error'); }
+    submitBtn.disabled = false;
 
     document.getElementById("adminName").value = "";
 
@@ -9520,6 +9710,8 @@ window.loadManualData = loadManualData;
     document.getElementById("adminDesc").value = "";
 
     document.getElementById("adminHot").value = "false";
+
+    await loadProductsFromApi();
 
     document.getElementById("adminTotalProducts").textContent = PRODUCTS.length;
 
@@ -9646,6 +9838,96 @@ window.loadManualData = loadManualData;
 
 
 
+  // Shown before a first-time seller application - the applicant must
+  // scroll through and tick the acceptance box before "I Accept &
+  // Continue" becomes clickable. Acceptance is remembered locally so it
+  // isn't shown again on every visit, and is also sent to the backend
+  // with the application itself (see handleSellerRegistration).
+  function renderSellerTermsGate() {
+    const area = document.getElementById('sellerRegistrationArea');
+    const content = document.getElementById('sellerContent');
+    if (!area || !content) return;
+    content.style.display = 'none';
+
+    area.innerHTML = `
+      <div class="seller-reg-form">
+        <h3 style="font-family:var(--font-display); margin-bottom:16px; color:var(--gold);">📋 Seller Terms &amp; Conditions</h3>
+        <p style="color:var(--gray); margin-bottom:16px; font-size:14px;">Please read the terms below carefully. You must accept them before you can apply to sell on KenLynk Marketplace.</p>
+
+        <div id="sellerTermsScrollBox" style="max-height:400px; overflow-y:auto; border:1px solid var(--border-strong); border-radius:10px; padding:18px; background:var(--surface-2); font-size:13px; line-height:1.6; color:var(--white);">
+
+          <h4 style="color:var(--gold); margin-bottom:8px;">1. Who Can Be a Seller</h4>
+          <p>You must be 18 years or older, have a valid phone number, sell genuine and legal products, and have a physical location for delivery. You may not sell illegal items, counterfeit products, dangerous items, hateful content, or stolen property. Violations lead to immediate suspension, possible reporting to authorities, and frozen earnings.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">2. Product Listing Rules</h4>
+          <p>Use clear, real photos of your actual product. Be honest in descriptions, including any defects. Set accurate prices in KES. Keep stock information up to date and remove sold-out items. Don't list the same product twice, and only mark items as "Hot Deals" if the discount is genuine.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">3. Pricing &amp; Fees</h4>
+          <p>Registration and product listing are completely free. When an item sells, a KES 20 service fee plus 3% commission of the product price is deducted. Example: a KES 1,000 item costs KES 50 in fees, so you receive KES 950. There are no hidden or upfront fees - fees only apply when you make a sale.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">4. Payment to Sellers</h4>
+          <p>After delivery is confirmed, fees are deducted and your payment is sent within 3 days, via M-Pesa, bank transfer, or cash pickup in Embu Town. If a customer returns a product for a valid reason, the sale is cancelled, fees are returned to you, and you get your product back - you don't lose money on valid returns.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">5. Delivery &amp; Fulfillment</h4>
+          <p>Check your dashboard daily for new orders, prepare in-stock products within 24 hours, and tell us immediately if something is out of stock. Delivery fees are paid by the customer and go to the delivery person - you are not responsible for delivery costs.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">6. Returns &amp; Refunds</h4>
+          <p>Valid return reasons include damaged products, wrong items, or products not matching the description. If the seller made the mistake, the seller covers return shipping; if the customer simply changed their mind, the customer covers it. You may reject a return if the product was damaged by the customer, more than 7 days have passed, or the item isn't eligible (e.g. food).</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">7. Seller Conduct</h4>
+          <p>Be honest, responsive, reliable, and professional. Reply to customer questions within 24 hours. Do not lie about products, ignore customers, sell counterfeits, abuse customers, steal other sellers' photos, or spam customers.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">8. Account Suspension &amp; Termination</h4>
+          <p>Minor first-time issues get a warning. Selling illegal items, counterfeits, abusing customers, or stealing result in a permanent ban. Multiple complaints may lead to a 30-day suspension. If suspended, your products are hidden and earnings frozen until the issue is resolved - you'll be notified and have 7 days to respond. Appeals can be made via WhatsApp and are reviewed within 48 hours.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">9. Customer Complaints</h4>
+          <p>If a customer complains, we investigate and give you 48 hours to respond with your side and any evidence before a fair decision is made and communicated to both parties.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">10. Your Rights as a Seller</h4>
+          <p>You can set your own prices, stop selling anytime, get paid for what you sell, contact us with questions, and appeal any decision you disagree with. We will never sell your products' pricing without permission or take your products.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">11. Data Protection &amp; Privacy</h4>
+          <p>We keep your name, phone number, location, products, and sales history to operate the marketplace. We never sell your data, never share it with strangers, and never use it for marketing without permission. You can request to see, correct, or delete your data at any time.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">12. Changes to These Terms</h4>
+          <p>We'll notify you at least 14 days before any changes take effect, via email or WhatsApp. If you disagree with a change, you can contact us, stop selling, or delete your account - you are never forced to accept changes.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">13. Contact Us</h4>
+          <p>WhatsApp/Phone: +254 713 721 775, +254 793 072 299, +254 112 396 258. Email: kenlynk254@gmail.com. Support hours: Mon-Sat 24 hours, Sunday 6:00 AM - 6:00 PM.</p>
+
+          <h4 style="color:var(--gold); margin:14px 0 8px;">14. Acceptance</h4>
+          <p>By ticking the box below and continuing, you confirm that you are 18 or older, have genuine and legal products to sell, have read and understood these terms in full, and agree to follow them - including the fee structure and our right to suspend accounts that break the rules.</p>
+
+        </div>
+
+        <label style="display:flex; align-items:flex-start; gap:10px; margin-top:18px; cursor:pointer; font-size:14px; color:var(--white);">
+          <input type="checkbox" id="sellerTermsCheckbox" style="margin-top:3px; width:18px; height:18px; flex-shrink:0;">
+          <span>I have read and accept the Seller Terms &amp; Conditions above, including the fee structure and account suspension policy.</span>
+        </label>
+
+        <button id="sellerTermsAcceptBtn" class="pay-btn" disabled style="width:100%; margin-top:16px; opacity:0.5; cursor:not-allowed;">✅ I Accept &amp; Continue to Application</button>
+
+        <p style="color:var(--gray); font-size:12px; margin-top:10px; text-align:center;">You must tick the box above to proceed. If you do not accept, you will not be able to apply as a seller.</p>
+      </div>
+    `;
+
+    const checkbox = document.getElementById('sellerTermsCheckbox');
+    const acceptBtn = document.getElementById('sellerTermsAcceptBtn');
+
+    checkbox.addEventListener('change', function() {
+      acceptBtn.disabled = !this.checked;
+      acceptBtn.style.opacity = this.checked ? '1' : '0.5';
+      acceptBtn.style.cursor = this.checked ? 'pointer' : 'not-allowed';
+    });
+
+    acceptBtn.addEventListener('click', function() {
+      if (!checkbox.checked) return; // safety net - button should be disabled anyway
+      localStorage.setItem('KC_sellerTermsAccepted', 'true');
+      localStorage.setItem('KC_sellerTermsAcceptedAt', new Date().toISOString());
+      renderSellerRegistration();
+    });
+  }
+
   function renderSellerRegistration() {
 
     const area = document.getElementById('sellerRegistrationArea');
@@ -9687,6 +9969,16 @@ window.loadManualData = loadManualData;
 
 
     if (!sellerStatus) {
+
+      // Seller Terms & Conditions must be read and explicitly accepted
+      // (checkbox ticked) before the application form is shown. The
+      // acceptance is also sent to the backend with the application
+      // itself, so this is enforced server-side too - not just a
+      // frontend-only gate someone could skip.
+      if (!localStorage.getItem('KC_sellerTermsAccepted')) {
+        renderSellerTermsGate();
+        return;
+      }
 
       area.innerHTML = `
 
@@ -10259,6 +10551,11 @@ async function handleSellerRegistration() {
       showToast('This account is already registered as an approved seller.', 'error');
       return;
     }
+    if (!localStorage.getItem('KC_sellerTermsAccepted')) {
+      showToast('You must accept the Seller Terms & Conditions before applying.', 'error');
+      renderSellerRegistration();
+      return;
+    }
 
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '\u23F3 Processing photo...'; }
     const idPhotoData = await compressImageFile(idPhotoFile, 900, 0.7);
@@ -10283,10 +10580,18 @@ async function handleSellerRegistration() {
           county: location || undefined,
           business_description: bizDesc || undefined,
           id_photo: idPhotoData,
-          business_doc: docData || undefined
+          business_doc: docData || undefined,
+          terms_accepted: true
         })
       });
     } catch (apiErr) {
+      // A business-name clash comes back with suggested alternatives -
+      // show those specifically instead of just a generic error, so the
+      // applicant immediately knows what to try next.
+      if (apiErr.data && Array.isArray(apiErr.data.suggestions) && apiErr.data.suggestions.length) {
+        const suggestionText = apiErr.data.suggestions.join(' | ');
+        throw new Error(`${apiErr.message} Try one of these instead: ${suggestionText}`);
+      }
       throw new Error(apiErr.message);
     }
 
@@ -12305,78 +12610,197 @@ function createAdminSellerManagement() {
 
 
 
-  function showProductDetail(productId) {
+  // ── Product Detail with Variant Picker ──────────────────────────────
+  // selectedVariantState tracks what the buyer has currently chosen
+  // so the picker can dynamically update price / stock / image.
+  let _detailVariantData = null;  // { attributes, variants, attributeValues }
+  let _detailSelectedOptions = {};// { attributeName: value }
+  let _detailProduct = null;
+
+  function _findMatchingVariant(variants, selected) {
+    return variants.find(v =>
+      v.options.every(o => selected[o.attribute_name] === o.value)
+    ) || null;
+  }
+
+  function _renderVariantPicker(variantData, product) {
+    if (!variantData || !variantData.attributes || !variantData.attributes.length) return '';
+    const { attributes, variants, attributeValues } = variantData;
+
+    let html = `<div id="variantPickerWrap" style="margin:14px 0; padding:14px; background:var(--surface-2); border-radius:12px; border:1px solid var(--border);">`;
+    html += `<div style="font-weight:700; font-size:14px; margin-bottom:10px; color:var(--white);">🎛️ Choose Options</div>`;
+
+    for (const attr of attributes) {
+      const values = attributeValues[attr.name] || [];
+      html += `<div style="margin-bottom:12px;">
+        <div style="font-size:12px; color:var(--gray); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">${escapeHtml(attr.name)}</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;" id="attr_${attr.id}_btns">`;
+      for (const val of values) {
+        // Check if any variant with this value has stock
+        const hasStock = variants.some(v =>
+          v.is_active && v.stock > 0 &&
+          v.options.some(o => o.attribute_name === attr.name && o.value === val)
+        );
+        const isSelected = _detailSelectedOptions[attr.name] === val;
+        html += `<button
+          onclick="window._selectVariantOption('${escapeHtml(attr.name)}', '${escapeHtml(val)}')"
+          style="padding:6px 14px; border-radius:8px; border:2px solid ${isSelected ? 'var(--green)' : 'var(--border-strong)'};
+                 background:${isSelected ? 'var(--green)' : 'var(--surface-3)'};
+                 color:${isSelected ? '#fff' : (hasStock ? 'var(--white)' : 'var(--gray)')};
+                 font-size:12px; font-weight:600; cursor:${hasStock ? 'pointer' : 'default'};
+                 opacity:${hasStock ? 1 : 0.4}; position:relative;"
+          ${!hasStock ? 'disabled' : ''}
+          data-attr="${escapeHtml(attr.name)}" data-val="${escapeHtml(val)}">
+          ${escapeHtml(val)}
+          ${!hasStock ? '<span style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;font-size:9px;border-radius:4px;padding:1px 4px;">OUT</span>' : ''}
+        </button>`;
+      }
+      html += `</div></div>`;
+    }
+
+    // Matched variant info
+    const matched = _findMatchingVariant(variants, _detailSelectedOptions);
+    const allAttrsPicked = attributes.every(a => _detailSelectedOptions[a.name]);
+
+    html += `<div id="variantMatchInfo" style="margin-top:10px; padding:10px; border-radius:8px; background:var(--surface); border:1px solid var(--border);">`;
+    if (!allAttrsPicked) {
+      html += `<div style="color:var(--gray); font-size:13px;">👆 Select all options above to see availability.</div>`;
+    } else if (!matched) {
+      html += `<div style="color:#e74c3c; font-size:13px; font-weight:600;">❌ This combination is not available.</div>`;
+    } else if (!matched.is_active || matched.stock === 0) {
+      html += `<div style="color:#e74c3c; font-size:13px; font-weight:600;">❌ Out of stock.</div>`;
+    } else {
+      html += `
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <div>
+            <span style="font-family:var(--font-mono); font-size:18px; font-weight:700; color:var(--gold);">KES ${Number(matched.price).toLocaleString()}</span>
+            ${matched.original_price ? `<span style="color:var(--gray); font-size:12px; text-decoration:line-through; margin-left:8px;">KES ${Number(matched.original_price).toLocaleString()}</span>` : ''}
+          </div>
+          <div style="font-size:12px; color:var(--green-light);">✅ ${matched.stock} in stock</div>
+        </div>
+        ${matched.sku ? `<div style="font-size:11px; color:var(--gray); margin-top:4px;">SKU: ${escapeHtml(matched.sku)}</div>` : ''}
+      `;
+    }
+    html += `</div></div>`;
+    return html;
+  }
+
+  window._selectVariantOption = function(attrName, value) {
+    _detailSelectedOptions[attrName] = value;
+    // Re-render picker in place
+    const wrap = document.getElementById('variantPickerWrap');
+    if (wrap) wrap.outerHTML = _renderVariantPicker(_detailVariantData, _detailProduct);
+    // Update price display and add-to-cart button state
+    _syncVariantDetailUI();
+  };
+
+  function _syncVariantDetailUI() {
+    if (!_detailVariantData) return;
+    const matched = _findMatchingVariant(_detailVariantData.variants, _detailSelectedOptions);
+    const allAttrsPicked = _detailVariantData.attributes.every(a => _detailSelectedOptions[a.name]);
+    const cartBtn = document.getElementById('detailAddToCartBtn');
+    if (!cartBtn) return;
+
+    if (matched && matched.is_active && matched.stock > 0) {
+      cartBtn.disabled = false;
+      cartBtn.style.opacity = '1';
+      cartBtn.onclick = () => addToCartVariant(_detailProduct.id, matched.id, matched);
+      // Update image if variant has images
+      if (matched.images && matched.images.length) {
+        const img = document.getElementById('detailMainImage');
+        if (img) img.src = matched.images[0];
+      }
+    } else {
+      cartBtn.disabled = !allAttrsPicked || !matched;
+      cartBtn.style.opacity = allAttrsPicked && matched ? '0.4' : '0.6';
+      cartBtn.onclick = null;
+    }
+  }
+
+  async function addToCartVariant(productId, variantId, variant) {
+    // Pass variant info through addToCart with a custom data attribute
+    await addToCart(productId, { variant_id: variantId, variant });
+  }
+
+  async function showProductDetail(productId) {
 
     const product = PRODUCTS.find(p => p.id === productId);
 
     if (!product) { showToast('Product not found.', 'error'); return; }
 
+    _detailProduct = product;
+    _detailVariantData = null;
+    _detailSelectedOptions = {};
+
     const detailContent = document.getElementById('productDetailContent');
 
     if (!detailContent) return;
 
-    const imageHtml = `<img src="${getProductImageUrl(product)}" alt="${escapeHtml(product.name)}" class="product-detail-image" onclick="openImageZoom('${getProductImageUrl(product)}')" onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}';" style="cursor:zoom-in; width:100%; height:400px; object-fit:cover; border-radius:16px;">`;
+    const mainImg = getProductImageUrl(product);
+
+    // Fetch variants from backend if product has them
+    let variantHtml = '';
+    if (product.has_variants) {
+      try {
+        const vRes = await apiCall(`/products/${productId}/variants`);
+        if (vRes && vRes.data && vRes.data.attributes && vRes.data.attributes.length) {
+          _detailVariantData = vRes.data;
+          variantHtml = _renderVariantPicker(_detailVariantData, product);
+        }
+      } catch (e) { /* non-fatal – show product without picker */ }
+    }
+
+    const hasVariants = !!(_detailVariantData && _detailVariantData.attributes && _detailVariantData.attributes.length);
+    const allAttrsPicked = hasVariants && _detailVariantData.attributes.every(a => _detailSelectedOptions[a.name]);
 
     detailContent.innerHTML = `
-
       <div class="product-detail-grid">
-
-        <div>${imageHtml}${product.video ? `<video src="${product.video}" controls style="width:100%; border-radius:16px; margin-top:10px; max-height:300px;"></video>` : ''}</div>
-
-        <div class="product-detail-info">
-
-          <h2>${product.name}</h2>
-
-          <div style="display:flex; align-items:center; gap:10px;"><span style="font-size:20px;">${getStarRating(product.rating || 0)}</span><span style="color:var(--gray); font-size:14px;">(${product.numReviews || 0} reviews)</span></div>
-
-          <div class="price">KES ${product.price.toLocaleString()}</div>
-
-          ${product.originalPrice ? `<div style="color:var(--gray);"><s>KES ${product.originalPrice.toLocaleString()}</s> <span style="color:var(--green-light);">${Math.round((1 - product.price/product.originalPrice) * 100)}% OFF</span></div>` : ''}
-
-          <div class="desc">${product.desc || 'No description available.'}</div>
-
-          <div style="color:var(--gray); font-size:14px;">Category: ${product.category || 'Uncategorized'}</div>
-
-          ${product.hot ? '<div style="color:var(--gold); font-weight:600;">🔥 Hot Deal</div>' : ''}
-
-          <div class="product-detail-actions">
-
-            <button onclick="addToCart(${product.id})" style="background:var(--green); color:white; flex:1;">🛒 Add to Cart</button>
-
-            <button onclick="toggleWishlist(${product.id})" style="background:var(--surface-3); color:var(--white); border:1px solid var(--border-strong); flex:1;">${wishlist.includes(product.id) ? '❤️' : '🤍'} Wishlist</button>
-
-            <button onclick="openRating(${product.id})" style="background:var(--surface-3); color:var(--white); border:1px solid var(--border-strong);">⭐ Rate</button>
-
-          </div>
-
-          <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-
-            <h4 style="color:var(--gray); font-size:14px;">Product Details</h4>
-
-            <ul style="color:var(--gray); font-size:13px; list-style:none; padding:0;">
-
-              <li>📦 SKU: #${product.id}</li>
-
-              <li>📂 Category: ${product.category || 'N/A'}</li>
-
-              ${product.rating ? `<li>⭐ Rating: ${product.rating}/5 (${product.numReviews} reviews)</li>` : ''}
-
-            </ul>
-
-          </div>
-
+        <div>
+          <img id="detailMainImage" src="${mainImg}" alt="${escapeHtml(product.name)}"
+               class="product-detail-image"
+               onclick="openImageZoom('${mainImg}')"
+               onerror="this.onerror=null;this.src='${DEFAULT_PRODUCT_IMAGE}';"
+               style="cursor:zoom-in; width:100%; height:400px; object-fit:cover; border-radius:16px;">
+          ${product.video ? `<video src="${product.video}" controls style="width:100%; border-radius:16px; margin-top:10px; max-height:300px;"></video>` : ''}
         </div>
-
+        <div class="product-detail-info">
+          <h2>${escapeHtml(product.name)}</h2>
+          ${product.brand ? `<div style="color:var(--gray); font-size:13px; margin-bottom:4px;">Brand: <strong style="color:var(--white);">${escapeHtml(product.brand)}</strong></div>` : ''}
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:20px;">${getStarRating(product.rating || 0)}</span>
+            <span style="color:var(--gray); font-size:14px;">(${product.numReviews || 0} reviews)</span>
+          </div>
+          ${!hasVariants ? `
+          <div class="price">KES ${product.price.toLocaleString()}</div>
+          ${product.originalPrice ? `<div style="color:var(--gray);"><s>KES ${product.originalPrice.toLocaleString()}</s> <span style="color:var(--green-light);">${Math.round((1 - product.price/product.originalPrice) * 100)}% OFF</span></div>` : ''}
+          ` : `<div id="detailPriceLine" style="font-family:var(--font-mono); font-size:16px; color:var(--gray); margin:8px 0;">Select options to see price</div>`}
+          <div class="desc">${product.desc || 'No description available.'}</div>
+          ${product.hot ? '<div style="color:var(--gold); font-weight:600;">🔥 Hot Deal</div>' : ''}
+          ${variantHtml}
+          <div class="product-detail-actions">
+            <button id="detailAddToCartBtn"
+              onclick="${hasVariants ? '' : `addToCart(${product.id})`}"
+              ${hasVariants && !allAttrsPicked ? 'disabled' : ''}
+              style="background:var(--green); color:white; flex:1; ${hasVariants && !allAttrsPicked ? 'opacity:0.5;' : ''}">
+              🛒 Add to Cart
+            </button>
+            <button onclick="toggleWishlist(${product.id})" style="background:var(--surface-3); color:var(--white); border:1px solid var(--border-strong); flex:1;">${wishlist.includes(product.id) ? '❤️' : '🤍'} Wishlist</button>
+            <button onclick="openRating(${product.id})" style="background:var(--surface-3); color:var(--white); border:1px solid var(--border-strong);">⭐ Rate</button>
+          </div>
+          <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+            <h4 style="color:var(--gray); font-size:14px;">Product Details</h4>
+            <ul style="color:var(--gray); font-size:13px; list-style:none; padding:0;">
+              <li>📦 Product ID: #${product.id}</li>
+              <li>📂 Category: ${product.category || 'N/A'}</li>
+              ${product.rating ? `<li>⭐ Rating: ${product.rating}/5 (${product.numReviews} reviews)</li>` : ''}
+            </ul>
+          </div>
+        </div>
       </div>
-
       <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border-strong);">
-
         <h3 style="font-family:var(--font-display); font-size:16px; margin-bottom:12px;">${t('reviewsTitle')}</h3>
-
         <div id="productReviewsWrap">${renderProductReviews(product.id)}</div>
-
       </div>
-
     `;
 
     goToPage('product-detail');
@@ -13186,10 +13610,12 @@ window.renderSMSLog = renderSMSLog;
       name: p.name,
       desc: p.description,
       category: p.category,
+      brand: p.brand || null,
       price: Number(p.price),
       originalPrice: p.original_price ? Number(p.original_price) : null,
       emoji: p.emoji,
       image: p.image,
+      images: p.images_json ? JSON.parse(p.images_json) : [],
       video: p.video,
       weight: Number(p.weight) || 1,
       fragile: !!p.fragile,
@@ -13200,7 +13626,8 @@ window.renderSMSLog = renderSMSLog;
       numReviews: p.num_reviews || 0,
       sellerEmail: p.seller_email || null,
       sellerBusinessName: p.seller_business_name || null,
-      status: p.status
+      status: p.status,
+      has_variants: !!p.has_variants
     };
   }
   window.mapApiProduct = mapApiProduct;
@@ -13212,7 +13639,12 @@ window.renderSMSLog = renderSMSLog;
   async function loadProductsFromApi() {
     try {
       const result = await apiCall('/products');
-      if (Array.isArray(result.data.products) && result.data.products.length > 0) {
+      // Trust the server's list as-is, including a genuinely empty one -
+      // an empty array means "no products right now" (e.g. all were
+      // deleted), not "the request failed". Previously this only updated
+      // PRODUCTS when the array was non-empty, which meant deleted
+      // products kept reappearing from stale/demo data.
+      if (Array.isArray(result.data.products)) {
         PRODUCTS = result.data.products.map(mapApiProduct);
       }
     } catch (err) {
@@ -15085,9 +15517,240 @@ window.rateRider = rateRider;
 
 </script>
 
+<script>
+// ════════════════════════════════════════════════════════════════════
+// PRODUCT VARIANTS BUILDER (Seller Dashboard)
+// ════════════════════════════════════════════════════════════════════
 
+window.toggleVariantBuilder = function(enabled) {
+  const body = document.getElementById('variantBuilderBody');
+  if (!body) return;
+  body.style.display = enabled ? 'block' : 'none';
+  if (enabled && document.getElementById('attrInputsWrap')?.children.length === 0) {
+    window.addAttributeInput();
+  }
+};
 
-<!-- Forgot Password Modal -->
+window.addAttributeInput = function() {
+  const wrap = document.getElementById('attrInputsWrap');
+  if (!wrap) return;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex; align-items:center; gap:4px;';
+  div.innerHTML = `
+    <input type="text" placeholder="e.g. Colour"
+           class="variant-attr-input"
+           style="background:var(--surface-3); border:1px solid var(--border-strong);
+                  color:var(--white); border-radius:8px; padding:6px 10px; font-size:12px; width:130px;"
+           oninput="window._syncVariantRowHeaders()">
+    <button type="button" onclick="this.parentElement.remove(); window._syncVariantRowHeaders();"
+            style="background:#e74c3c; border:none; color:#fff; border-radius:6px;
+                   padding:4px 8px; cursor:pointer; font-size:11px;">✕</button>
+  `;
+  wrap.appendChild(div);
+  div.querySelector('input').focus();
+  window._syncVariantRowHeaders();
+};
+
+window._syncVariantRowHeaders = function() {
+  const attrNames = _getAttrNames();
+  const header = document.getElementById('variantRowsHeader');
+  if (header) {
+    let html = `<div style="display:flex; gap:6px; font-size:11px; color:var(--gray); font-weight:600;
+        text-transform:uppercase; padding:0 4px; margin-bottom:6px; flex-wrap:wrap;">`;
+    for (const n of attrNames) html += `<div style="min-width:100px; flex:1;">${n||'Option'}</div>`;
+    html += `<div style="width:80px;">Price*</div><div style="width:60px;">Stock*</div><div style="width:80px;">SKU</div><div style="width:36px;"></div></div>`;
+    header.innerHTML = html;
+  }
+  document.querySelectorAll('.variant-data-row').forEach(row => {
+    _refreshVariantRowCells(row, attrNames);
+  });
+};
+
+function _getAttrNames() {
+  return [...document.querySelectorAll('.variant-attr-input')]
+    .map(i => i.value.trim()).filter(Boolean);
+}
+
+function _refreshVariantRowCells(row, attrNames) {
+  const optionCells = row.querySelector('.option-cells');
+  if (!optionCells) return;
+  const existing = {};
+  optionCells.querySelectorAll('input[data-attr]').forEach(i => { existing[i.dataset.attr] = i.value; });
+  let html = '';
+  for (const n of attrNames) {
+    html += `<input type="text" data-attr="${n}" placeholder="${n}" value="${(existing[n]||'').replace(/"/g,'&quot;')}"
+      style="background:var(--surface-3); border:1px solid var(--border-strong); color:var(--white);
+             border-radius:6px; padding:5px 8px; font-size:12px; min-width:100px; flex:1;">`;
+  }
+  optionCells.innerHTML = html;
+}
+
+window.addVariantRow = function() {
+  const rowsWrap = document.getElementById('variantRowsWrap');
+  if (!rowsWrap) return;
+  const attrNames = _getAttrNames();
+  if (!document.getElementById('variantRowsHeader')) {
+    const h = document.createElement('div'); h.id = 'variantRowsHeader'; rowsWrap.prepend(h);
+  }
+  const row = document.createElement('div');
+  row.className = 'variant-data-row';
+  row.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:8px; flex-wrap:wrap; padding:8px; background:var(--surface); border-radius:8px; border:1px solid var(--border);';
+  const optionCellsDiv = document.createElement('div');
+  optionCellsDiv.className = 'option-cells';
+  optionCellsDiv.style.cssText = 'display:flex; gap:6px; flex:1; min-width:0; flex-wrap:wrap;';
+  row.appendChild(optionCellsDiv);
+  row.insertAdjacentHTML('beforeend', `
+    <input type="number" class="vr-price" placeholder="Price" min="0"
+      style="background:var(--surface-3); border:1px solid var(--border-strong); color:var(--gold);
+             border-radius:6px; padding:5px 8px; font-size:12px; width:80px;">
+    <input type="number" class="vr-stock" placeholder="Stock" min="0" value="0"
+      style="background:var(--surface-3); border:1px solid var(--border-strong); color:var(--white);
+             border-radius:6px; padding:5px 8px; font-size:12px; width:60px;">
+    <input type="text" class="vr-sku" placeholder="SKU (opt)"
+      style="background:var(--surface-3); border:1px solid var(--border-strong); color:var(--gray);
+             border-radius:6px; padding:5px 8px; font-size:12px; width:80px;">
+    <button type="button" onclick="this.closest('.variant-data-row').remove();"
+      style="background:#e74c3c; border:none; color:#fff; border-radius:6px; padding:5px 8px; cursor:pointer; font-size:13px;">✕</button>
+  `);
+  rowsWrap.appendChild(row);
+  _refreshVariantRowCells(row, attrNames);
+  window._syncVariantRowHeaders();
+};
+
+window._collectVariantPayload = function() {
+  const attrNames = _getAttrNames();
+  if (!attrNames.length) { showToast('Add at least one option type (e.g. Colour, Size).', 'error'); return null; }
+  const rows = document.querySelectorAll('.variant-data-row');
+  if (!rows.length) { showToast('Add at least one variant row.', 'error'); return null; }
+  const variants = [];
+  let valid = true;
+  rows.forEach((row, ri) => {
+    if (!valid) return;
+    const price = parseFloat(row.querySelector('.vr-price')?.value);
+    const stock = parseInt(row.querySelector('.vr-stock')?.value, 10);
+    const sku   = row.querySelector('.vr-sku')?.value.trim() || null;
+    if (!price || price <= 0) { showToast(`Variant row ${ri+1}: price is required.`, 'error'); valid = false; return; }
+    if (isNaN(stock) || stock < 0) { showToast(`Variant row ${ri+1}: stock must be 0 or more.`, 'error'); valid = false; return; }
+    const options = attrNames.map(n => ({
+      attrName: n,
+      value: (row.querySelector(`.option-cells input[data-attr="${n}"]`)?.value || '').trim()
+    })).filter(o => o.value);
+    variants.push({ price, stock, sku, original_price: null, options });
+  });
+  if (!valid) return null;
+  return { attributeNames: attrNames, variants };
+};
+
+// ════════════════════════════════════════════════════════════════════
+// ADMIN VARIANT PANEL
+// ════════════════════════════════════════════════════════════════════
+
+window.loadAdminVariants = async function(productId, productName) {
+  if (!document.getElementById('adminVariantModal')) _createAdminVariantModal();
+  const m = document.getElementById('adminVariantModal');
+  m.style.display = 'flex';
+  document.getElementById('adminVariantModalTitle').textContent = `🎛️ Variants — ${productName}`;
+  document.getElementById('adminVariantModalBody').innerHTML = '<div style="color:var(--gray); padding:20px;">Loading…</div>';
+  m.dataset.productId = productId;
+  try {
+    const res = await adminApiCall(`/admin/products/${productId}/variants`);
+    _renderAdminVariantPanel(productId, res.data);
+  } catch (e) {
+    document.getElementById('adminVariantModalBody').innerHTML = `<div style="color:#e74c3c; padding:20px;">Failed: ${e.message}</div>`;
+  }
+};
+
+function _createAdminVariantModal() {
+  const div = document.createElement('div');
+  div.id = 'adminVariantModal';
+  div.style.cssText = 'display:none; position:fixed; inset:0; z-index:2000; background:rgba(0,0,0,0.88); align-items:flex-start; justify-content:center; overflow-y:auto; padding:20px;';
+  div.innerHTML = `
+    <div style="background:var(--surface); border:1px solid var(--border-strong); border-radius:16px;
+                padding:24px; max-width:960px; width:100%; margin:auto; position:relative; margin-top:20px;">
+      <button onclick="document.getElementById('adminVariantModal').style.display='none';"
+              style="position:absolute; top:16px; right:16px; background:var(--surface-2); border:1px solid var(--border-strong);
+                     color:var(--white); border-radius:8px; padding:6px 14px; cursor:pointer;">✕ Close</button>
+      <h3 id="adminVariantModalTitle" style="font-family:var(--font-display); margin-bottom:16px; padding-right:80px;"></h3>
+      <div id="adminVariantModalBody"></div>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+function _renderAdminVariantPanel(productId, data) {
+  const body = document.getElementById('adminVariantModalBody');
+  const { attributes = [], variants = [] } = data || {};
+  if (!attributes.length && !variants.length) {
+    body.innerHTML = `<div style="color:var(--gray); padding:10px;">No variants defined for this product.</div>`;
+    return;
+  }
+  let html = `<div style="margin-bottom:14px; display:flex; flex-wrap:wrap; gap:8px;">`;
+  for (const a of attributes) {
+    html += `<span style="background:var(--surface-2); border:1px solid var(--border-strong); border-radius:8px; padding:4px 12px; font-size:12px; color:var(--white);">${escapeHtml(a.name)}</span>`;
+  }
+  html += `</div>`;
+  html += `<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <thead><tr style="background:var(--surface-2); color:var(--gray); text-align:left;">
+      <th style="padding:8px 10px;">Options</th>
+      <th style="padding:8px 10px;">Price</th>
+      <th style="padding:8px 10px; min-width:100px;">Stock</th>
+      <th style="padding:8px 10px;">SKU</th>
+      <th style="padding:8px 10px;">Active</th>
+      <th style="padding:8px 10px;">Actions</th>
+    </tr></thead><tbody>`;
+  for (const v of variants) {
+    const label = v.options.map(o => `${o.attribute_name}: <strong style="color:var(--white);">${escapeHtml(o.value)}</strong>`).join(' · ') || '<em style="color:var(--gray);">No options</em>';
+    const stockColor = v.stock === 0 ? '#e74c3c' : v.stock < 5 ? '#f39c12' : 'var(--green-light)';
+    html += `<tr style="border-bottom:1px solid var(--border);" data-variant-id="${v.id}">
+      <td style="padding:10px;">${label}</td>
+      <td style="padding:10px; font-family:var(--font-mono); color:var(--gold);">KES ${Number(v.price).toLocaleString()}</td>
+      <td style="padding:10px;">
+        <input type="number" value="${v.stock}" min="0"
+          style="width:70px; background:var(--surface-2); border:1px solid var(--border-strong);
+                 color:${stockColor}; border-radius:6px; padding:4px 8px; font-size:12px;"
+          onchange="window._adminUpdateVariantStock(${v.id}, this.value, ${productId})">
+      </td>
+      <td style="padding:10px; color:var(--gray); font-size:11px;">${v.sku ? escapeHtml(v.sku) : '—'}</td>
+      <td style="padding:10px;">${v.is_active ? '<span style="color:var(--green-light);">✅</span>' : '<span style="color:#e74c3c;">❌</span>'}</td>
+      <td style="padding:10px;">
+        <button onclick="window._adminDeleteVariant(${v.id}, ${productId})"
+          style="background:#e74c3c; border:none; color:#fff; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px;">
+          🗑️ Delete
+        </button>
+      </td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+  const lowStock = variants.filter(v => v.stock <= 3 && v.is_active);
+  if (lowStock.length) {
+    html += `<div style="margin-top:14px; padding:10px; background:rgba(243,156,18,0.12); border:1px solid #f39c12; border-radius:8px; font-size:12px; color:#f39c12;">
+      ⚠️ ${lowStock.length} variant(s) have low stock (≤ 3 units).
+    </div>`;
+  }
+  body.innerHTML = html;
+}
+
+window._adminUpdateVariantStock = async function(variantId, stockVal, productId) {
+  const stock = parseInt(stockVal, 10);
+  if (isNaN(stock) || stock < 0) return;
+  try {
+    await adminApiCall(`/admin/variants/${variantId}/stock`, { method: 'PATCH', body: JSON.stringify({ stock }) });
+    showToast('Stock updated.', 'success');
+    const res = await adminApiCall(`/admin/products/${productId}/variants`);
+    _renderAdminVariantPanel(productId, res.data);
+  } catch (e) { showToast('Failed: ' + e.message, 'error'); }
+};
+
+window._adminDeleteVariant = async function(variantId, productId) {
+  if (!confirm('Delete this variant? Cannot be undone.')) return;
+  try {
+    await adminApiCall(`/admin/variants/${variantId}`, { method: 'DELETE' });
+    showToast('Variant deleted.', 'success');
+    const res = await adminApiCall(`/admin/products/${productId}/variants`);
+    _renderAdminVariantPanel(productId, res.data);
+  } catch (e) { showToast('Failed: ' + e.message, 'error'); }
+};
+</script>
 
 <div id="forgotModal" style="display:none; position:fixed; inset:0; z-index:1001; background:rgba(0,0,0,0.8); align-items:center; justify-content:center;">
 

@@ -3,11 +3,11 @@
 const pool = require('../db');
 
 const IntasendPayment = {
-  async create({ api_ref, phone, amount, purpose, purpose_months, user_id }) {
+  async create({ api_ref, phone, amount, purpose, purpose_months, purpose_plan, user_id }) {
     const [result] = await pool.query(
-      `INSERT INTO intasend_payments (api_ref, phone, amount, purpose, purpose_months, user_id, status)
-       VALUES (?,?,?,?,?,?,'PENDING')`,
-      [api_ref, phone, amount, purpose, purpose_months || null, user_id || null]
+      `INSERT INTO intasend_payments (api_ref, phone, amount, purpose, purpose_months, purpose_plan, user_id, status)
+       VALUES (?,?,?,?,?,?,?,'PENDING')`,
+      [api_ref, phone, amount, purpose, purpose_months || null, purpose_plan || null, user_id || null]
     );
     return result.insertId;
   },

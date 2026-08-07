@@ -49,11 +49,27 @@ function requireAdmin(req, res, next) {
 
 // Use after `protect` on routes that only an approved, currently-active
 // seller should reach (adding products, managing orders, etc).
+//
+// NOTE: this used to require EVERY seller - even Free plan - to have a
+// paid, non-expired subscription. That made it impossible for a Free-plan
+// seller to ever pass this check, since Free never creates a
+// subscription_status/subscription_end at all. Free plan requires no
+// payment (see helpers.js SUBSCRIPTION_PLANS - it only lists silver/gold),
+// so being an approved seller is enough on its own for that tier. Paid
+// tiers (silver/gold) still need an active, non-expired subscription.
 function requireActiveSeller(req, res, next) {
   if (!req.user) return sendError(res, 401, 'Not authenticated.');
   const u = req.user;
+
+  if (u.seller_status !== 'approved') {
+    return sendError(res, 403, 'Your seller account is not active - check your application and subscription status.');
+  }
+
+  const plan = u.seller_plan || 'free';
+  if (plan === 'free') return next();
+
   const notExpired = u.subscription_end && new Date(u.subscription_end) >= new Date();
-  if (u.seller_status !== 'approved' || u.subscription_status !== 'active' || !notExpired) {
+  if (u.subscription_status !== 'active' || !notExpired) {
     return sendError(res, 403, 'Your seller account is not active - check your application and subscription status.');
   }
   next();

@@ -91,18 +91,32 @@ const User = {
     );
   },
 
+  // Which plan tier (free/silver/gold) a seller is on - separate from
+  // subscription_status/end, which just track whether ANY paid plan is
+  // currently active. 'free' is the default for every seller.
+  async setSellerPlan(id, plan) {
+    await pool.query('UPDATE users SET seller_plan = ? WHERE id = ?', [plan, id]);
+  },
+
   async setShopDisabled(id, disabled) {
     await pool.query('UPDATE users SET shop_disabled = ? WHERE id = ?', [disabled, id]);
   },
 
   async findAllSellers({ status, limit = 50, offset = 0 } = {}) {
-    let sql = "SELECT id, name, email, phone, business_name, county, kra_pin, seller_status, seller_rejection_reason, subscription_status, subscription_end, shop_disabled, created_at FROM users WHERE seller_status != 'none'";
+    let sql = "SELECT id, name, email, phone, business_name, county, kra_pin, seller_status, seller_rejection_reason, subscription_status, subscription_end, shop_disabled, verified, seller_plan, created_at FROM users WHERE seller_status != 'none'";
     const params = [];
     if (status) { sql += ' AND seller_status = ?'; params.push(status); }
     sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     params.push(Number(limit), Number(offset));
     const [rows] = await pool.query(sql, params);
     return rows;
+  },
+
+  // Admin-only "Verified Seller" badge - independent of seller_status
+  // (a seller can be approved to sell without being verified, and vice
+  // versa isn't allowed by the route, but the DB doesn't enforce that).
+  async setVerified(id, verified) {
+    await pool.query('UPDATE users SET verified = ? WHERE id = ?', [verified ? 1 : 0, id]);
   },
 
   // A seller's shop counts as "active" only if approved, subscribed

@@ -9,13 +9,15 @@ const { v4: uuidv4 } = require('uuid');
 const { initiateStkPush } = require('../utils/intasend');
 const IntasendPayment = require('../models/intasendPayment');
 const User = require('../models/user');
-const { sendSuccess, sendError, getSubscriptionPrice, addMonths, todayStr } = require('../helpers');
+const { sendSuccess, sendError, getSubscriptionPrice, getSubscriptionMonths, addMonths, todayStr } = require('../helpers');
 
-// POST /api/intasend/subscribe  { months }  (protected, approved seller)
+// POST /api/intasend/subscribe  { plan }  (protected, approved seller)
+// plan is 'silver' or 'gold' - see helpers.js SUBSCRIPTION_PLANS.
 exports.initiateSubscriptionPayment = async (req, res) => {
-  const { months } = req.body;
-  const amount = getSubscriptionPrice(Number(months));
-  if (!amount) return sendError(res, 400, 'Invalid subscription plan.');
+  const { plan } = req.body;
+  const amount = getSubscriptionPrice(plan);
+  const months = getSubscriptionMonths(plan);
+  if (!amount) return sendError(res, 400, `Invalid plan. Choose one of: ${Object.keys(require('../helpers').SUBSCRIPTION_PLANS).join(', ')}`);
   if (req.user.seller_status !== 'approved') return sendError(res, 403, 'Your seller application must be approved before subscribing.');
   if (!req.user.phone) return sendError(res, 400, 'Your account has no phone number on file.');
 
@@ -23,7 +25,7 @@ exports.initiateSubscriptionPayment = async (req, res) => {
 
   await IntasendPayment.create({
     api_ref: apiRef, phone: req.user.phone, amount, purpose: 'subscription',
-    purpose_months: months, user_id: req.user.id
+    purpose_months: months, purpose_plan: plan, user_id: req.user.id
   });
 
   try {
@@ -32,7 +34,7 @@ exports.initiateSubscriptionPayment = async (req, res) => {
       amount,
       email: req.user.email,
       apiRef,
-      narrative: `KenLynk Marketplace ${months}-month seller subscription`
+      narrative: `KenLynk Marketplace ${plan.charAt(0).toUpperCase() + plan.slice(1)} plan subscription`
     });
 
     const invoiceId = stkResult && stkResult.invoice ? stkResult.invoice.invoice_id : null;
@@ -94,6 +96,7 @@ exports.webhook = async (req, res) => {
         const pool = require('../db');
         await pool.query('INSERT INTO subscription_payments (seller_id, months, amount) VALUES (?,?,?)', [user.id, months, payment.amount]);
         await User.setSubscription(user.id, { status: 'active', start: todayStr(), end });
+        if (payment.purpose_plan) await User.setSellerPlan(user.id, payment.purpose_plan);
       }
       // purpose === 'order' would be applied here too, once checkout is wired to this same flow.
     }

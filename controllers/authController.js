@@ -10,7 +10,7 @@ const User = require('../models/user');
 const Admin = require('../models/admin');
 const {
   sendSuccess, sendError, signToken, generateReferralCode,
-  getSubscriptionPrice, addMonths, todayStr
+  getSubscriptionPrice, getSubscriptionMonths, SUBSCRIPTION_PLANS, addMonths, todayStr
 } = require('../helpers');
 
 // Same rule as the website: at least 6 characters, one number, one symbol.
@@ -263,22 +263,26 @@ exports.getMyReferrals = async (req, res) => {
   });
 };
 
-// POST /api/auth/subscribe  { months }  (protected, requires approved seller)
-// Records payment as made immediately - wire this to a real M-Pesa STK
-// push + callback before going live, same caveat as the previous backend.
+// POST /api/auth/subscribe  { plan }  (protected, requires approved seller)
+// Records payment as made immediately - this bypasses the real payment
+// gateway (see intasendController.initiateSubscriptionPayment for the
+// real flow), so this should only be used for admin/manual activation,
+// never called directly by the buyer-facing "Upgrade" button.
 exports.subscribe = async (req, res) => {
-  const { months } = req.body;
-  const amount = getSubscriptionPrice(Number(months));
-  if (!amount) return sendError(res, 400, `months must be one of: ${Object.keys(require('../helpers').SUBSCRIPTION_PLANS).join(', ')}`);
+  const { plan } = req.body;
+  const amount = getSubscriptionPrice(plan);
+  const months = getSubscriptionMonths(plan);
+  if (!amount) return sendError(res, 400, `plan must be one of: ${Object.keys(SUBSCRIPTION_PLANS).join(', ')}`);
   if (req.user.seller_status !== 'approved') return sendError(res, 403, 'Your seller application must be approved before subscribing.');
 
   const stillActive = req.user.subscription_end && new Date(req.user.subscription_end) >= new Date();
   const startBase = stillActive ? req.user.subscription_end : todayStr();
-  const end = addMonths(startBase, Number(months));
+  const end = addMonths(startBase, months);
 
   const pool = require('../db');
   await pool.query('INSERT INTO subscription_payments (seller_id, months, amount) VALUES (?,?,?)', [req.user.id, months, amount]);
   await User.setSubscription(req.user.id, { status: 'active', start: todayStr(), end });
+  await User.setSellerPlan(req.user.id, plan);
 
-  return sendSuccess(res, 200, 'Subscription activated.', { months, amount, subscription_end: end });
+  return sendSuccess(res, 200, 'Subscription activated.', { plan, amount, subscription_end: end });
 };

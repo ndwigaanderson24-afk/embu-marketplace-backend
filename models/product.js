@@ -7,12 +7,12 @@ const Product = {
     const [result] = await pool.query(
       `INSERT INTO products
         (seller_id, name, description, category, price, original_price, emoji, image, video,
-         weight, fragile, stock, county, hot, status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         weight, fragile, stock, county, hot, status, low_stock_threshold)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.price,
        data.original_price || null, data.emoji || null, data.image || null, data.video || null,
        data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot,
-       data.status || 'active']
+       data.status || 'active', data.low_stock_threshold || null]
     );
     return result.insertId;
   },
@@ -42,8 +42,10 @@ const Product = {
       WHERE p.status = 'active'
       AND (
         p.seller_id IS NULL
-        OR (u.seller_status = 'approved' AND u.subscription_status = 'active'
-            AND u.subscription_end >= CURDATE() AND u.shop_disabled = FALSE)
+        OR (u.seller_status = 'approved' AND u.shop_disabled = FALSE AND (
+          COALESCE(u.seller_plan, 'free') = 'free'
+          OR (u.subscription_status = 'active' AND u.subscription_end >= CURDATE())
+        ))
       )`;
     const params = [];
     if (category) { sql += ' AND p.category = ?'; params.push(category); }
@@ -56,7 +58,7 @@ const Product = {
 
   async update(id, sellerId, data) {
     const allowed = ['name', 'description', 'category', 'price', 'original_price', 'emoji',
-      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status'];
+      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');
@@ -71,7 +73,7 @@ const Product = {
   // an admin, since those have no seller to match against.
   async updateAsAdmin(id, data) {
     const allowed = ['name', 'description', 'category', 'price', 'original_price', 'emoji',
-      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status'];
+      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

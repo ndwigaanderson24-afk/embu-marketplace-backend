@@ -59,6 +59,8 @@ exports.initiateSubscriptionPayment = async (req, res) => {
       invoice_id: invoiceId
     });
   } catch (err) {
+    console.error('IntaSend subscription STK push failed:', err.message);
+    console.error(err.stack || err);
     await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
     return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
   }
@@ -131,6 +133,8 @@ exports.initiateCheckoutPayment = async (req, res) => {
       invoice_id: invoiceId
     });
   } catch (err) {
+    console.error('IntaSend checkout STK push failed:', err.message);
+    console.error(err.stack || err);
     await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
     return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
   }

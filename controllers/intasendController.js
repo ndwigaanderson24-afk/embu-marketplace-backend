@@ -25,6 +25,35 @@ function isValidPhoneNumber(phone) {
   return phone && phone.replace(/\D/g, '').length >= 10;
 }
 
+// The IntaSend SDK's errors don't always have a useful .message - the
+// real reason (e.g. "invalid_phone_number", "invalid_amount", an auth
+// failure) usually lives in the raw HTTP response body, which the SDK
+// sometimes hands back as an undecoded Buffer rather than parsed JSON.
+// This pulls the real message out wherever it's hiding and returns a
+// plain, readable string - used both for server-side logging and for
+// the message actually returned to the caller, so a specific error
+// ("invalid_phone_number") shows up instead of a generic fallback.
+function describeIntasendError(err) {
+  const candidates = [
+    err && err.response && err.response.data,
+    err && err.response && err.response.body,
+    err && err.data,
+    err && err.body
+  ];
+  for (const c of candidates) {
+    if (!c) continue;
+    try {
+      const text = Buffer.isBuffer(c) ? c.toString('utf8') : (typeof c === 'string' ? c : JSON.stringify(c));
+      const parsed = JSON.parse(text);
+      if (parsed && parsed.errors && parsed.errors.length) {
+        return parsed.errors.map(e => e.detail || e.code || JSON.stringify(e)).join('; ');
+      }
+      return text;
+    } catch (parseErr) { /* not JSON / not decodable - try the next candidate */ }
+  }
+  return err && err.message ? err.message : 'Unknown IntaSend error';
+}
+
 // POST /api/intasend/subscribe  { plan }  (protected, approved seller)
 // plan is 'silver' or 'gold' - see helpers.js SUBSCRIPTION_PLANS.
 exports.initiateSubscriptionPayment = async (req, res) => {
@@ -59,10 +88,10 @@ exports.initiateSubscriptionPayment = async (req, res) => {
       invoice_id: invoiceId
     });
   } catch (err) {
-    console.error('IntaSend subscription STK push failed:', err.message);
-    console.error(err.stack || err);
-    await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
-    return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
+    const reason = describeIntasendError(err);
+    console.error('IntaSend subscription STK push failed:', reason);
+    await IntasendPayment.updateStatus(apiRef, 'FAILED', reason);
+    return sendError(res, 502, reason);
   }
 };
 
@@ -133,10 +162,10 @@ exports.initiateCheckoutPayment = async (req, res) => {
       invoice_id: invoiceId
     });
   } catch (err) {
-    console.error('IntaSend checkout STK push failed:', err.message);
-    console.error(err.stack || err);
-    await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
-    return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
+    const reason = describeIntasendError(err);
+    console.error('IntaSend checkout STK push failed:', reason);
+    await IntasendPayment.updateStatus(apiRef, 'FAILED', reason);
+    return sendError(res, 502, reason);
   }
 };
 

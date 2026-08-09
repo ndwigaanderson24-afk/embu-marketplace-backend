@@ -25,7 +25,19 @@ router.post('/apply-seller', protect,
   wrap(auth.applySeller));
 router.get('/seller-status', protect, wrap(auth.getSellerStatus));
 router.get('/referrals', protect, wrap(auth.getMyReferrals));
-router.post('/subscribe', protect, wrap(auth.subscribe));
+
+// NOTE: a public POST /subscribe route used to live here, calling
+// auth.subscribe() to activate a plan with NO payment step - it recorded
+// payment as already made just because the request arrived. It was never
+// called by the frontend (which correctly uses the payment-verified
+// /api/intasend/subscribe flow instead), but it was still live and
+// reachable: any logged-in seller could POST {plan:"gold"} directly to
+// it and get Gold for free. Removed for that reason. auth.subscribe()
+// itself is left intact and still exported in authController.js in case
+// it's rebuilt later as a proper admin tool (it would need to accept a
+// target seller id rather than acting on the caller's own req.user,
+// since an admin-authenticated request has no req.user - see
+// middleware/auth.js protect()).
 
 // Admin account management - any logged-in admin can view/add/remove others.
 router.get('/admins', protect, requireAdmin, wrap(auth.listAdmins));

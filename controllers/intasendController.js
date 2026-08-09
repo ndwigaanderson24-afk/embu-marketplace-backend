@@ -34,24 +34,49 @@ function isValidPhoneNumber(phone) {
 // the message actually returned to the caller, so a specific error
 // ("invalid_phone_number") shows up instead of a generic fallback.
 function describeIntasendError(err) {
+  // The SDK sometimes rejects with the raw response body itself (a
+  // Buffer or plain string), not a proper Error object with a .response
+  // property - check for that shape first, but only when err genuinely
+  // IS a buffer/string. Stringifying a real Error object loses its
+  // message entirely (message/stack aren't enumerable), so never treat
+  // an actual Error instance as candidate #1 or it hides the real data
+  // further down this list.
   const candidates = [
+    (Buffer.isBuffer(err) || typeof err === 'string') ? err : null,
     err && err.response && err.response.data,
     err && err.response && err.response.body,
     err && err.data,
     err && err.body
   ];
+  let firstDecodedText = null;
   for (const c of candidates) {
     if (!c) continue;
+    let text;
     try {
-      const text = Buffer.isBuffer(c) ? c.toString('utf8') : (typeof c === 'string' ? c : JSON.stringify(c));
+      text = Buffer.isBuffer(c) ? c.toString('utf8') : (typeof c === 'string' ? c : JSON.stringify(c));
+    } catch (decodeErr) { continue; }
+    if (firstDecodedText === null) firstDecodedText = text;
+    try {
       const parsed = JSON.parse(text);
       if (parsed && parsed.errors && parsed.errors.length) {
         return parsed.errors.map(e => e.detail || e.code || JSON.stringify(e)).join('; ');
       }
-      return text;
-    } catch (parseErr) { /* not JSON / not decodable - try the next candidate */ }
+      if (parsed && (parsed.message || parsed.error)) {
+        return parsed.message || parsed.error;
+      }
+      return text; // valid JSON but not a shape we recognise - still show it
+    } catch (parseErr) { /* not JSON - keep looking, but remember this text as a fallback */ }
   }
-  return err && err.message ? err.message : 'Unknown IntaSend error';
+  // Not valid JSON anywhere, but we did decode SOME text - that's still
+  // more useful than nothing.
+  if (firstDecodedText) return firstDecodedText;
+  // Nothing decodable found anywhere - dump everything we've got so the
+  // next log at least shows the raw shape instead of a dead end.
+  try {
+    return 'Undecodable error - raw: ' + require('util').inspect(err, { depth: 4, maxStringLength: 2000 });
+  } catch (inspectErr) {
+    return err && err.message ? err.message : 'Unknown IntaSend error';
+  }
 }
 
 // POST /api/intasend/subscribe  { plan }  (protected, approved seller)

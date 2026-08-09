@@ -7,11 +7,11 @@ const Product = {
     const [result] = await pool.query(
       `INSERT INTO products
         (seller_id, name, description, category, category_id, price, original_price, emoji, image, video,
-         weight, fragile, stock, county, hot, status, low_stock_threshold)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         weight, fragile, stock, county, hot, flash_deal_ends_at, status, low_stock_threshold)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null, data.price,
        data.original_price || null, data.emoji || null, data.image || null, data.video || null,
-       data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot,
+       data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot, data.flash_deal_ends_at || null,
        data.status || 'active', data.low_stock_threshold || null]
     );
     return result.insertId;
@@ -69,7 +69,7 @@ const Product = {
 
   async update(id, sellerId, data) {
     const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status', 'low_stock_threshold'];
+      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');
@@ -84,7 +84,7 @@ const Product = {
   // an admin, since those have no seller to match against.
   async updateAsAdmin(id, data) {
     const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status', 'low_stock_threshold'];
+      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

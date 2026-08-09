@@ -3,18 +3,35 @@
 const Product = require('../models/product');
 const Review = require('../models/review');
 const Order = require('../models/order');
+const Category = require('../models/category');
 const { sendSuccess, sendError } = require('../helpers');
+
+// Confirms a submitted category_id actually exists before it's ever
+// written to a product - sellers pick from the real category dropdown,
+// they don't type it, and the backend never just trusts the id it's
+// handed. Returns null (valid, no category chosen) or the confirmed
+// numeric id, or throws a 400-shaped error the caller sends back.
+async function resolveCategoryId(category_id) {
+  if (category_id === undefined || category_id === null || category_id === '') return null;
+  const cat = await Category.findById(category_id);
+  if (!cat) { const err = new Error('Selected category does not exist.'); err.statusCode = 400; throw err; }
+  return cat.id;
+}
 
 // POST /api/products  (protected, requireActiveSeller, multipart/form-data field "images")
 exports.create = async (req, res) => {
-  const { name, price } = req.body;
+  const { name, price, category_id } = req.body;
   if (!name || price === undefined) return sendError(res, 400, 'name and price are required.');
   if (Number(price) <= 0) return sendError(res, 400, 'price must be greater than 0.');
+
+  let resolvedCategoryId;
+  try { resolvedCategoryId = await resolveCategoryId(category_id); }
+  catch (err) { return sendError(res, err.statusCode || 400, err.message); }
 
   // County always comes from the seller's own account, never the request
   // body - this is what makes delivery-fee calculation trustworthy.
   const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : (req.body.image || null);
-  const productId = await Product.create(req.user.id, { ...req.body, county: req.user.county, image });
+  const productId = await Product.create(req.user.id, { ...req.body, category_id: resolvedCategoryId, county: req.user.county, image });
   const product = await Product.findById(productId);
   return sendSuccess(res, 201, 'Product added.', { product });
 };
@@ -27,8 +44,17 @@ exports.getMine = async (req, res) => {
 
 // PUT /api/products/:id  (protected, multipart/form-data field "images" optional)
 exports.update = async (req, res) => {
+  let resolvedCategoryId;
+  if (req.body.category_id !== undefined) {
+    try { resolvedCategoryId = await resolveCategoryId(req.body.category_id); }
+    catch (err) { return sendError(res, err.statusCode || 400, err.message); }
+  }
   const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : undefined;
-  const updated = await Product.update(req.params.id, req.user.id, { ...req.body, ...(image ? { image } : {}) });
+  const updated = await Product.update(req.params.id, req.user.id, {
+    ...req.body,
+    ...(resolvedCategoryId !== undefined ? { category_id: resolvedCategoryId } : {}),
+    ...(image ? { image } : {})
+  });
   if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
   const product = await Product.findById(req.params.id);
   return sendSuccess(res, 200, 'Product updated.', { product });
@@ -42,8 +68,16 @@ exports.remove = async (req, res) => {
 };
 
 // GET /api/products  (public storefront)
+// ?category_id=<id> filters by that category AND all of its subcategories
+// (e.g. category_id for "Phones" also returns products filed under
+// "Smartphones", "Phone Cases", etc). ?category=<string> still works as
+// a plain string match for anything not yet migrated to category_id.
 exports.getPublicList = async (req, res) => {
-  const products = await Product.findPublic(req.query);
+  const { category_id } = req.query;
+  let category_ids;
+  if (category_id) category_ids = await Category.getDescendantIds(category_id);
+
+  const products = await Product.findPublic({ ...req.query, category_ids });
   return sendSuccess(res, 200, 'Products retrieved.', { products });
 };
 
@@ -90,11 +124,15 @@ exports.addReview = async (req, res) => {
 // seller products. Accepts a JSON body (image as a base64 data URL or
 // external URL string), matching how the admin dashboard's form works.
 exports.adminCreate = async (req, res) => {
-  const { name, price } = req.body;
+  const { name, price, category_id } = req.body;
   if (!name || price === undefined) return sendError(res, 400, 'name and price are required.');
   if (Number(price) <= 0) return sendError(res, 400, 'price must be greater than 0.');
 
-  const productId = await Product.create(null, { ...req.body, county: req.body.county || null });
+  let resolvedCategoryId;
+  try { resolvedCategoryId = await resolveCategoryId(category_id); }
+  catch (err) { return sendError(res, err.statusCode || 400, err.message); }
+
+  const productId = await Product.create(null, { ...req.body, category_id: resolvedCategoryId, county: req.body.county || null });
   const product = await Product.findById(productId);
   return sendSuccess(res, 201, 'Product added.', { product });
 };
@@ -103,7 +141,15 @@ exports.adminCreate = async (req, res) => {
 // ones owned by a seller, bypassing the seller-ownership check that the
 // regular seller-facing update route enforces.
 exports.adminUpdate = async (req, res) => {
-  const updated = await Product.updateAsAdmin(req.params.id, req.body);
+  let resolvedCategoryId;
+  if (req.body.category_id !== undefined) {
+    try { resolvedCategoryId = await resolveCategoryId(req.body.category_id); }
+    catch (err) { return sendError(res, err.statusCode || 400, err.message); }
+  }
+  const updated = await Product.updateAsAdmin(req.params.id, {
+    ...req.body,
+    ...(resolvedCategoryId !== undefined ? { category_id: resolvedCategoryId } : {})
+  });
   if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
   const product = await Product.findById(req.params.id);
   return sendSuccess(res, 200, 'Product updated.', { product });

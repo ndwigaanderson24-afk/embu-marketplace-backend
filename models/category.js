@@ -84,6 +84,33 @@ const Category = {
     return roots;
   },
 
+  // All descendant ids of a category, including itself - e.g. for
+  // "Phones" this returns [Phones, Smartphones, Feature Phones, Phone
+  // Cases, ...]. Used so filtering the Shop by a parent category also
+  // picks up products filed under its subcategories. One query for the
+  // whole tree, then walked in memory - cheap regardless of depth.
+  async getDescendantIds(id) {
+    const numericId = Number(id);
+    const tree = await this.getTree({ activeOnly: false });
+
+    function findNode(nodes) {
+      for (const n of nodes) {
+        if (n.id === numericId) return n;
+        const found = findNode(n.children);
+        if (found) return found;
+      }
+      return null;
+    }
+    function collectIds(node) {
+      let ids = [node.id];
+      for (const child of node.children) ids.push(...collectIds(child));
+      return ids;
+    }
+
+    const node = findNode(tree);
+    return node ? collectIds(node) : [numericId];
+  },
+
   // ── Write ────────────────────────────────────────────────────────────
 
   async create({ parent_id, name, description, icon, image_url, position }) {

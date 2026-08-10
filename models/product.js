@@ -4,13 +4,21 @@ const pool = require('../db');
 
 const Product = {
   async create(sellerId, data) {
+    // images_json holds the full gallery (array of image URLs/data-URIs);
+    // `image` keeps mirroring the first one so every existing feature
+    // that only ever reads `.image` (cards, cart, orders, admin lists)
+    // keeps working unchanged.
+    const images = Array.isArray(data.images) ? data.images.filter(Boolean) : null;
+    const primaryImage = (images && images.length) ? images[0] : (data.image || null);
+    const imagesJson = (images && images.length) ? JSON.stringify(images) : null;
+
     const [result] = await pool.query(
       `INSERT INTO products
-        (seller_id, name, description, category, category_id, price, original_price, emoji, image, video,
+        (seller_id, name, description, category, category_id, price, original_price, emoji, image, images_json, video,
          weight, fragile, stock, county, hot, flash_deal_ends_at, status, low_stock_threshold)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null, data.price,
-       data.original_price || null, data.emoji || null, data.image || null, data.video || null,
+       data.original_price || null, data.emoji || null, primaryImage, imagesJson, data.video || null,
        data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot, data.flash_deal_ends_at || null,
        data.status || 'active', data.low_stock_threshold || null]
     );
@@ -68,8 +76,15 @@ const Product = {
   },
 
   async update(id, sellerId, data) {
+    // If a new gallery was submitted, derive image/images_json from it
+    // the same way create() does, rather than expecting the caller to
+    // pass images_json pre-built.
+    if (Array.isArray(data.images)) {
+      const images = data.images.filter(Boolean);
+      data = { ...data, image: images.length ? images[0] : data.image, images_json: images.length ? JSON.stringify(images) : null };
+    }
     const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
+      'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');
@@ -83,8 +98,12 @@ const Product = {
   // no seller) owns it - used for platform products added directly by
   // an admin, since those have no seller to match against.
   async updateAsAdmin(id, data) {
+    if (Array.isArray(data.images)) {
+      const images = data.images.filter(Boolean);
+      data = { ...data, image: images.length ? images[0] : data.image, images_json: images.length ? JSON.stringify(images) : null };
+    }
     const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
+      'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

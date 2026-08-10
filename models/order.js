@@ -83,10 +83,17 @@ const Order = {
 
         for (const item of group.items) {
           await conn.query(
-            'INSERT INTO order_items (order_id, product_id, product_name, qty, price) VALUES (?,?,?,?,?)',
-            [orderId, item.id, item.name, item.qty, item.price]
+            'INSERT INTO order_items (order_id, product_id, variant_id, variant_name, variant_sku, product_name, qty, price) VALUES (?,?,?,?,?,?,?,?)',
+            [orderId, item.id, item.variant_id || null, item.variant_name || null, item.variant_sku || null, item.name, item.qty, item.price]
           );
-          await conn.query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.id]);
+          // A variant (e.g. a specific colour) has its own stock, tracked
+          // separately from the base product's - decrement whichever one
+          // actually applies to what was bought.
+          if (item.variant_id) {
+            await conn.query('UPDATE product_variants SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.variant_id]);
+          } else {
+            await conn.query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.id]);
+          }
         }
 
         // Referral commission, evaluated per sub-order (matches the website:

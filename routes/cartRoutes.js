@@ -28,9 +28,9 @@ router.get('/', optionalAuth, wrap(async (req, res) => {
 router.post('/add', optionalAuth, wrap(async (req, res) => {
   const owner = resolveOwner(req);
   if (!owner) return sendError(res, 400, 'session_id is required for guest carts.');
-  const { product_id, qty } = req.body;
+  const { product_id, qty, variant_id, variant_name } = req.body;
   if (!product_id) return sendError(res, 400, 'product_id is required.');
-  await Cart.addItem(owner, product_id, Number(qty) || 1);
+  await Cart.addItem(owner, product_id, Number(qty) || 1, variant_id || null, variant_name || null);
   const items = await Cart.getItems(owner);
   return sendSuccess(res, 200, 'Added to cart.', { items });
 }));
@@ -38,9 +38,9 @@ router.post('/add', optionalAuth, wrap(async (req, res) => {
 router.put('/update', optionalAuth, wrap(async (req, res) => {
   const owner = resolveOwner(req);
   if (!owner) return sendError(res, 400, 'session_id is required for guest carts.');
-  const { product_id, qty } = req.body;
+  const { product_id, qty, variant_id } = req.body;
   if (!product_id || qty === undefined) return sendError(res, 400, 'product_id and qty are required.');
-  await Cart.updateQty(owner, product_id, Number(qty));
+  await Cart.updateQty(owner, product_id, Number(qty), variant_id || null);
   const items = await Cart.getItems(owner);
   return sendSuccess(res, 200, 'Cart updated.', { items });
 }));
@@ -48,7 +48,7 @@ router.put('/update', optionalAuth, wrap(async (req, res) => {
 router.delete('/:productId', optionalAuth, wrap(async (req, res) => {
   const owner = resolveOwner(req);
   if (!owner) return sendError(res, 400, 'session_id is required for guest carts.');
-  await Cart.removeItem(owner, req.params.productId);
+  await Cart.removeItem(owner, req.params.productId, req.query.variant_id || null);
   return sendSuccess(res, 200, 'Removed from cart.');
 }));
 

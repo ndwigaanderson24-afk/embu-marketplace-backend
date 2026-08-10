@@ -12,13 +12,19 @@ const Product = {
     const primaryImage = (images && images.length) ? images[0] : (data.image || null);
     const imagesJson = (images && images.length) ? JSON.stringify(images) : null;
 
+    // wholesale_tiers_json holds an array of {min, max, price} quantity
+    // tiers - buyer-facing pricing display already exists in the
+    // frontend and just reads this straight off the product.
+    const wholesaleTiersJson = (Array.isArray(data.wholesale_tiers) && data.wholesale_tiers.length)
+      ? JSON.stringify(data.wholesale_tiers) : null;
+
     const [result] = await pool.query(
       `INSERT INTO products
-        (seller_id, name, description, category, category_id, price, original_price, emoji, image, images_json, video,
+        (seller_id, name, description, category, category_id, price, original_price, emoji, image, images_json, wholesale_tiers_json, video,
          weight, fragile, stock, county, hot, flash_deal_ends_at, status, low_stock_threshold)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null, data.price,
-       data.original_price || null, data.emoji || null, primaryImage, imagesJson, data.video || null,
+       data.original_price || null, data.emoji || null, primaryImage, imagesJson, wholesaleTiersJson, data.video || null,
        data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot, data.flash_deal_ends_at || null,
        data.status || 'active', data.low_stock_threshold || null]
     );
@@ -83,8 +89,11 @@ const Product = {
       const images = data.images.filter(Boolean);
       data = { ...data, image: images.length ? images[0] : data.image, images_json: images.length ? JSON.stringify(images) : null };
     }
+    if (Array.isArray(data.wholesale_tiers)) {
+      data = { ...data, wholesale_tiers_json: data.wholesale_tiers.length ? JSON.stringify(data.wholesale_tiers) : null };
+    }
     const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
+      'image', 'images_json', 'wholesale_tiers_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');
@@ -102,8 +111,11 @@ const Product = {
       const images = data.images.filter(Boolean);
       data = { ...data, image: images.length ? images[0] : data.image, images_json: images.length ? JSON.stringify(images) : null };
     }
+    if (Array.isArray(data.wholesale_tiers)) {
+      data = { ...data, wholesale_tiers_json: data.wholesale_tiers.length ? JSON.stringify(data.wholesale_tiers) : null };
+    }
     const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
+      'image', 'images_json', 'wholesale_tiers_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

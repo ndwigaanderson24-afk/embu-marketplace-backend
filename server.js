@@ -44,8 +44,12 @@ app.use(cors({
   credentials: true
 }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+// Raised from 2mb - a product with up to 30 compressed photos (plus a
+// full description, wholesale tiers, etc) can comfortably exceed 2mb as
+// a single JSON request. 20mb gives real headroom without being
+// unreasonably large for a small server.
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
 app.use('/api/auth/', rateLimit({

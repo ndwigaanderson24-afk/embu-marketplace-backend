@@ -16,7 +16,7 @@ const Product = {
       `INSERT INTO products
         (seller_id, name, description, category, category_id, price, original_price, emoji, image, images_json, video,
          weight, fragile, stock, county, hot, flash_deal_ends_at, status, low_stock_threshold)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null, data.price,
        data.original_price || null, data.emoji || null, primaryImage, imagesJson, data.video || null,
        data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot, data.flash_deal_ends_at || null,

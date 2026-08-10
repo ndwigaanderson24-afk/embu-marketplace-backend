@@ -21,12 +21,12 @@ const Product = {
     const [result] = await pool.query(
       `INSERT INTO products
         (seller_id, name, description, category, category_id, price, original_price, emoji, image, images_json, wholesale_tiers_json, video,
-         weight, fragile, stock, county, hot, flash_deal_ends_at, status, low_stock_threshold)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         weight, fragile, stock, county, hot, flash_deal_ends_at, status, low_stock_threshold, has_variants)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null, data.price,
        data.original_price || null, data.emoji || null, primaryImage, imagesJson, wholesaleTiersJson, data.video || null,
        data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot, data.flash_deal_ends_at || null,
-       data.status || 'active', data.low_stock_threshold || null]
+       data.status || 'active', data.low_stock_threshold || null, !!data.has_variants]
     );
     return result.insertId;
   },
@@ -93,7 +93,7 @@ const Product = {
       data = { ...data, wholesale_tiers_json: data.wholesale_tiers.length ? JSON.stringify(data.wholesale_tiers) : null };
     }
     const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'images_json', 'wholesale_tiers_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
+      'image', 'images_json', 'wholesale_tiers_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold', 'has_variants'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');
@@ -115,7 +115,7 @@ const Product = {
       data = { ...data, wholesale_tiers_json: data.wholesale_tiers.length ? JSON.stringify(data.wholesale_tiers) : null };
     }
     const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'images_json', 'wholesale_tiers_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold'];
+      'image', 'images_json', 'wholesale_tiers_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'flash_deal_ends_at', 'status', 'low_stock_threshold', 'has_variants'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

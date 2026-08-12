@@ -8,7 +8,7 @@
 const { RtcTokenBuilder, RtcRole } = require('agora-token');
 const LiveStream = require('../models/liveStream');
 const Product = require('../models/product');
-const { sendSuccess, sendError } = require('../utils/helpers');
+const { sendSuccess, sendError } = require('../helpers');
 
 const APP_ID = process.env.AGORA_APP_ID;
 const APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE;

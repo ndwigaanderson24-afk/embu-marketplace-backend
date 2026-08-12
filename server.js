@@ -21,6 +21,7 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const intasendRoutes = require('./routes/intasendRoutes');
 const productVariantRoutes = require('./routes/productVariantRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
+const shopstreamRoutes = require('./routes/shopstreamRoutes');
 
 const app = express();
 
@@ -75,6 +76,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/intasend', intasendRoutes);
 app.use('/api', productVariantRoutes);
 app.use('/api', categoryRoutes);
+app.use('/api/shopstream', shopstreamRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.originalUrl}` }));

@@ -122,3 +122,12 @@ exports.endLive = async (req, res) => {
   await LiveStream.end(stream.id);
   return sendSuccess(res, 200, 'Stream ended.', {});
 };
+
+// Admin-only: force-end any seller's stream regardless of ownership -
+// for moderation, e.g. shutting down an inappropriate broadcast.
+exports.adminEndLive = async (req, res) => {
+  const stream = await LiveStream.findById(req.params.id);
+  if (!stream) return sendError(res, 404, 'Stream not found.');
+  await LiveStream.end(stream.id);
+  return sendSuccess(res, 200, 'Stream ended by admin.', {});
+};

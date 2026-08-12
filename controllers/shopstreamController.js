@@ -6,7 +6,7 @@
 // read the same way by admin, buyers, and the seller themselves.
 
 const { RtcTokenBuilder, RtcRole } = require('agora-token');
-const LiveStream = require('../models/liveStream');
+const { LiveStream, LiveStreamMessage } = require('../models/liveStream');
 const Product = require('../models/product');
 const { sendSuccess, sendError } = require('../helpers');
 
@@ -130,4 +130,51 @@ exports.adminEndLive = async (req, res) => {
   if (!stream) return sendError(res, 404, 'Stream not found.');
   await LiveStream.end(stream.id);
   return sendSuccess(res, 200, 'Stream ended by admin.', {});
+};
+
+// Real chat - works for both the seller (broadcasting) and any viewer
+// (logged in or guest), since ShopStream never requires an account to
+// watch. Simple max length to keep messages readable in a fast-moving
+// live chat.
+exports.sendMessage = async (req, res) => {
+  const stream = await LiveStream.findById(req.params.id);
+  if (!stream || stream.status !== 'live') return sendError(res, 404, 'This stream is not live right now.');
+
+  const message = (req.body.message || '').trim().slice(0, 300);
+  if (!message) return sendError(res, 400, 'Message cannot be empty.');
+
+  const senderName = (req.body.sender_name || (req.user ? req.user.name : 'Guest') || 'Guest').slice(0, 100);
+  const senderRole = req.user && req.user.id === stream.seller_id ? 'seller' : 'viewer';
+
+  const id = await LiveStreamMessage.create(stream.id, { senderName, senderRole, message });
+  return sendSuccess(res, 201, 'Message sent.', { id });
+};
+
+// Polling endpoint - pass ?after=<last message id you've already seen>
+// to get only new messages since then.
+exports.getMessages = async (req, res) => {
+  const stream = await LiveStream.findById(req.params.id);
+  if (!stream) return sendError(res, 404, 'Stream not found.');
+  const afterId = parseInt(req.query.after, 10) || 0;
+  const messages = await LiveStreamMessage.findSince(stream.id, afterId);
+  return sendSuccess(res, 200, 'Messages retrieved.', { messages });
+};
+
+exports.likeStream = async (req, res) => {
+  const stream = await LiveStream.findById(req.params.id);
+  if (!stream) return sendError(res, 404, 'Stream not found.');
+  const likeCount = await LiveStream.incrementLikes(stream.id);
+  return sendSuccess(res, 200, 'Liked.', { like_count: likeCount });
+};
+
+// Called periodically by whoever is watching, to say "I'm still here" -
+// this is what makes the viewer count real, working around Agora not
+// reporting audience presence to the host at all.
+exports.pingViewer = async (req, res) => {
+  const stream = await LiveStream.findById(req.params.id);
+  if (!stream || stream.status !== 'live') return sendError(res, 404, 'This stream is not live right now.');
+  const viewerKey = (req.body.viewer_key || '').slice(0, 64);
+  if (!viewerKey) return sendError(res, 400, 'viewer_key is required.');
+  const count = await LiveStream.recordViewerPing(stream.id, viewerKey);
+  return sendSuccess(res, 200, 'Ping recorded.', { current_viewers: count });
 };

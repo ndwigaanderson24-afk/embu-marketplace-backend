@@ -5,9 +5,14 @@ const sc = require('../controllers/shopstreamController');
 const { protect, optionalAuth, requireActiveSeller, requireAdmin } = require('../middleware/auth');
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
 
-// Public - anyone can see who's live, and join to watch, without an account.
+// Public - anyone can see who's live, join to watch, chat, and like,
+// without an account - ShopStream never requires logging in to watch.
 router.get('/live', wrap(sc.getLiveStreams));
 router.post('/:id/join', optionalAuth, wrap(sc.joinLive));
+router.post('/:id/messages', optionalAuth, wrap(sc.sendMessage));
+router.get('/:id/messages', wrap(sc.getMessages));
+router.post('/:id/like', wrap(sc.likeStream));
+router.post('/:id/ping', wrap(sc.pingViewer));
 
 // Seller-only - starting/ending/updating their own broadcast.
 router.post('/go-live', protect, requireActiveSeller, wrap(sc.goLive));

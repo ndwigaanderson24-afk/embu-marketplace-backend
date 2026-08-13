@@ -54,19 +54,49 @@ const Product = {
     return { totalFound: rows.length, migrated, errors };
   },
 
+  // Normalizes the raw payload the seller/admin forms actually send:
+  // - images (array) -> images_json (stored as a JSON string)
+  // - wholesale_tiers (array) -> wholesale_tiers_json
+  // - made_in_kenya is derived from country_of_origin, never sent directly
+  // Used by create/update/updateAsAdmin so all three handle every real
+  // field the same way - this replaces an earlier version of this file
+  // that silently dropped most of these (including images), based on a
+  // stale copy that predated several fields being added.
+  _normalizeIncoming(data) {
+    const out = { ...data };
+    if (out.images !== undefined) {
+      out.images_json = JSON.stringify(out.images || []);
+      if (!out.image && out.images && out.images.length) out.image = out.images[0];
+      delete out.images;
+    }
+    if (out.wholesale_tiers !== undefined) {
+      out.wholesale_tiers_json = JSON.stringify(out.wholesale_tiers || []);
+      delete out.wholesale_tiers;
+    }
+    if (out.country_of_origin !== undefined) {
+      out.made_in_kenya = out.country_of_origin === 'Kenya';
+    }
+    if (out.has_variants !== undefined) out.has_variants = !!out.has_variants ? 1 : 0;
+    return out;
+  },
+
   async create(sellerId, data) {
+    data = this._normalizeIncoming(data);
     const priced = await priceProduct(data.seller_price, { category: data.category, fragile: !!data.fragile });
 
     const [result] = await pool.query(
       `INSERT INTO products
-        (seller_id, name, description, category, price, seller_price, price_margin,
-         price_delivery_allocation, price_risk_allocation, original_price, emoji, image, video,
-         weight, fragile, stock, county, hot, status, low_stock_threshold)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [sellerId || null, data.name, data.description || null, data.category || null,
-       priced.finalPrice, priced.sellerPrice, priced.margin, priced.deliveryAllocation, priced.riskAllocation,
-       data.original_price || null, data.emoji || null, data.image || null, data.video || null,
+        (seller_id, name, description, category, category_id, brand, price, seller_price, price_margin,
+         price_delivery_allocation, price_risk_allocation, original_price, emoji, image, images_json, video,
+         weight, fragile, stock, county, hot, is_new_arrival, is_best_rated, country_of_origin, made_in_kenya,
+         flash_deal_ends_at, wholesale_tiers_json, has_variants, status, low_stock_threshold)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null,
+       data.brand || null, priced.finalPrice, priced.sellerPrice, priced.margin, priced.deliveryAllocation, priced.riskAllocation,
+       data.original_price || null, data.emoji || null, data.image || null, data.images_json || null, data.video || null,
        data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot,
+       !!data.is_new_arrival, !!data.is_best_rated, data.country_of_origin || null, !!data.made_in_kenya,
+       data.flash_deal_ends_at || null, data.wholesale_tiers_json || null, data.has_variants || 0,
        data.status || 'active', data.low_stock_threshold || null]
     );
     return result.insertId;
@@ -139,11 +169,14 @@ const Product = {
   async update(id, sellerId, data) {
     const current = await this.findById(id);
     if (!current || current.seller_id !== sellerId) return false;
+    data = this._normalizeIncoming(data);
     data = await this._repriceIfNeeded(id, data, current);
 
-    const allowed = ['name', 'description', 'category', 'price', 'seller_price', 'price_margin',
+    const allowed = ['name', 'description', 'category', 'category_id', 'brand', 'price', 'seller_price', 'price_margin',
       'price_delivery_allocation', 'price_risk_allocation', 'original_price', 'emoji',
-      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status', 'low_stock_threshold'];
+      'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'is_new_arrival', 'is_best_rated',
+      'country_of_origin', 'made_in_kenya', 'flash_deal_ends_at', 'wholesale_tiers_json', 'has_variants',
+      'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');
@@ -159,11 +192,14 @@ const Product = {
   async updateAsAdmin(id, data) {
     const current = await this.findById(id);
     if (!current) return false;
+    data = this._normalizeIncoming(data);
     data = await this._repriceIfNeeded(id, data, current);
 
-    const allowed = ['name', 'description', 'category', 'price', 'seller_price', 'price_margin',
+    const allowed = ['name', 'description', 'category', 'category_id', 'brand', 'price', 'seller_price', 'price_margin',
       'price_delivery_allocation', 'price_risk_allocation', 'original_price', 'emoji',
-      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status', 'low_stock_threshold'];
+      'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'is_new_arrival', 'is_best_rated',
+      'country_of_origin', 'made_in_kenya', 'flash_deal_ends_at', 'wholesale_tiers_json', 'has_variants',
+      'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

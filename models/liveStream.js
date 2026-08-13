@@ -37,7 +37,7 @@ const LiveStream = {
        JOIN users u ON u.id = ls.seller_id
        LEFT JOIN products p ON p.id = ls.product_id
        WHERE ls.status = 'live'
-       ORDER BY ls.started_at DESC`
+       ORDER BY ls.is_promoted DESC, ls.started_at DESC`
     );
     return rows;
   },

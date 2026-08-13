@@ -22,6 +22,8 @@ const Order = require('../models/order');
 const { sendSuccess, sendError, getSubscriptionPrice, getSubscriptionMonths, SUBSCRIPTION_PLANS, addMonths, todayStr } = require('../helpers');
 const Product = require('../models/product');
 const FeaturedRequest = require('../models/featuredRequest');
+const FeaturedLiveRequest = require('../models/featuredLiveRequest');
+const { LiveStream } = require('../models/liveStream');
 
 function isValidPhoneNumber(phone) {
   return phone && phone.replace(/\D/g, '').length >= 10;
@@ -108,6 +110,52 @@ exports.initiateFeatureProductPayment = async (req, res) => {
       email: req.user.email,
       apiRef,
       narrative: `KenLynk Marketplace - Feature "${product.name}" for ${daysNum} day${daysNum === 1 ? '' : 's'}`
+    });
+
+    const invoiceId = stkResult && stkResult.invoice ? stkResult.invoice.invoice_id : null;
+    if (invoiceId) await IntasendPayment.setInvoiceId(apiRef, invoiceId);
+
+    return sendSuccess(res, 200, 'Payment prompt sent to your phone. Enter your M-Pesa PIN to complete.', {
+      api_ref: apiRef,
+      invoice_id: invoiceId
+    });
+  } catch (err) {
+    await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
+    return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
+  }
+};
+
+// POST /api/intasend/feature-live  { stream_id }  (protected, seller)
+// Real payment for "Promote Your Live" - the stream only actually gets
+// promoted once the webhook confirms payment AND admin approves it,
+// same two-step flow as Feature My Product.
+exports.initiateFeatureLivePayment = async (req, res) => {
+  const { stream_id } = req.body;
+  if (!stream_id) return sendError(res, 400, 'stream_id is required.');
+
+  const stream = await LiveStream.findById(stream_id);
+  if (!stream || stream.seller_id !== req.user.id) {
+    return sendError(res, 403, 'That stream is not yours.');
+  }
+  if (stream.status !== 'live') return sendError(res, 400, 'This stream is not live right now.');
+  if (!req.user.phone) return sendError(res, 400, 'Your account has no phone number on file.');
+
+  const amount = 200;
+  const apiRef = `FLIVE-${req.user.id}-${uuidv4().slice(0, 8)}`;
+
+  await IntasendPayment.create({
+    api_ref: apiRef, phone: req.user.phone, amount, purpose: 'featured_live',
+    payload_json: JSON.stringify({ stream_id, seller_id: req.user.id }),
+    user_id: req.user.id
+  });
+
+  try {
+    const stkResult = await initiateStkPush({
+      phone: req.user.phone,
+      amount,
+      email: req.user.email,
+      apiRef,
+      narrative: `KenLynk Marketplace - Promote your live stream`
     });
 
     const invoiceId = stkResult && stkResult.invoice ? stkResult.invoice.invoice_id : null;
@@ -290,6 +338,20 @@ exports.webhook = async (req, res) => {
         } catch (featErr) {
           console.error('Failed to create featured request after confirmed payment:', featErr.message);
           await IntasendPayment.setResult(api_ref, JSON.stringify({ error: featErr.message }));
+        }
+      }
+
+      // Same pattern, for a real "Promote Your Live" payment.
+      if (payment.purpose === 'featured_live' && payment.payload_json) {
+        try {
+          const payload = JSON.parse(payment.payload_json);
+          const requestId = await FeaturedLiveRequest.create({
+            seller_id: payload.seller_id, stream_id: payload.stream_id, price: payment.amount
+          });
+          await IntasendPayment.setResult(api_ref, JSON.stringify({ featured_live_request_id: requestId }));
+        } catch (liveErr) {
+          console.error('Failed to create featured live request after confirmed payment:', liveErr.message);
+          await IntasendPayment.setResult(api_ref, JSON.stringify({ error: liveErr.message }));
         }
       }
     }

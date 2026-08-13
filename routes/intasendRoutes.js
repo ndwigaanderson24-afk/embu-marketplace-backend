@@ -14,6 +14,8 @@ router.post('/subscribe', protect, wrap(intasend.initiateSubscriptionPayment));
 
 router.post('/feature-product', protect, wrap(intasend.initiateFeatureProductPayment));
 
+router.post('/feature-live', protect, wrap(intasend.initiateFeatureLivePayment));
+
 // Buyer checkout payment - public/optionalAuth so guests (session_id) can
 // pay too, matching how POST /api/orders itself works.
 router.post('/checkout', optionalAuth, wrap(intasend.initiateCheckoutPayment));

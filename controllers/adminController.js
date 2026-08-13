@@ -6,6 +6,7 @@ const Notification = require('../models/notification');
 const { sendSuccess, sendError } = require('../helpers');
 const Product = require('../models/product');
 const FeaturedRequest = require('../models/featuredRequest');
+const FeaturedLiveRequest = require('../models/featuredLiveRequest');
 
 async function logActivity(actor, action, details) {
   try { await pool.query('INSERT INTO activity_logs (actor, action, details) VALUES (?,?,?)', [actor, action, details || null]); }
@@ -119,6 +120,32 @@ exports.rejectFeaturedRequest = async (req, res) => {
   const request = await FeaturedRequest.findById(req.params.id);
   if (!request) return sendError(res, 404, 'Request not found.');
   await FeaturedRequest.updateStatus(request.id, 'rejected');
+  return sendSuccess(res, 200, 'Request rejected.', {});
+};
+
+// GET /api/admin/featured-live-requests - real, paid "Promote Your
+// Live" requests awaiting review.
+exports.getFeaturedLiveRequests = async (req, res) => {
+  const requests = await FeaturedLiveRequest.findAllForAdmin();
+  return sendSuccess(res, 200, 'Featured live requests retrieved.', { requests });
+};
+
+// POST /api/admin/featured-live-requests/:id/approve - only takes
+// effect if the stream is still actually live; if it's already ended
+// by the time this runs, approving it is a harmless no-op (matches
+// "usually within minutes" in the seller-facing copy).
+exports.approveFeaturedLiveRequest = async (req, res) => {
+  const request = await FeaturedLiveRequest.findById(req.params.id);
+  if (!request) return sendError(res, 404, 'Request not found.');
+  await pool.query("UPDATE live_streams SET is_promoted = 1 WHERE id = ? AND status = 'live'", [request.stream_id]);
+  await FeaturedLiveRequest.updateStatus(request.id, 'approved');
+  return sendSuccess(res, 200, 'Live stream promoted.', {});
+};
+
+exports.rejectFeaturedLiveRequest = async (req, res) => {
+  const request = await FeaturedLiveRequest.findById(req.params.id);
+  if (!request) return sendError(res, 404, 'Request not found.');
+  await FeaturedLiveRequest.updateStatus(request.id, 'rejected');
   return sendSuccess(res, 200, 'Request rejected.', {});
 };
 

@@ -25,6 +25,9 @@ router.get('/referrals', wrap(admin.getReferralOverview));
 router.get('/featured-requests', wrap(admin.getFeaturedRequests));
 router.post('/featured-requests/:id/approve', wrap(admin.approveFeaturedRequest));
 router.post('/featured-requests/:id/reject', wrap(admin.rejectFeaturedRequest));
+router.get('/featured-live-requests', wrap(admin.getFeaturedLiveRequests));
+router.post('/featured-live-requests/:id/approve', wrap(admin.approveFeaturedLiveRequest));
+router.post('/featured-live-requests/:id/reject', wrap(admin.rejectFeaturedLiveRequest));
 router.get('/analytics', wrap(admin.getAnalytics));
 
 router.post('/announcements', wrap(admin.sendAnnouncement));

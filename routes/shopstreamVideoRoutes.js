@@ -17,6 +17,7 @@ router.get('/mine/list', protect, requireActiveSeller, wrap(vc.getMyVideos));
 router.post('/', protect, requireActiveSeller, wrap(vc.createVideo));
 
 router.get('/:id', wrap(vc.getVideoById));
+router.get('/:id/raw', wrap(vc.getRawVideo));
 router.post('/:id/like', wrap(vc.likeVideo));
 router.post('/:id/save', wrap(vc.saveVideo));
 router.post('/:id/comments', optionalAuth, wrap(vc.addComment));

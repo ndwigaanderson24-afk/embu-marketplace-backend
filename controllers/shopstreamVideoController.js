@@ -30,11 +30,13 @@ exports.getPublishedVideos = async (req, res) => {
   return sendSuccess(res, 200, 'Videos retrieved.', { videos });
 };
 
-// Returns one video WITH its actual video data, and records a view.
+// Returns one video's metadata as JSON (not the raw bytes - see
+// getRawVideo below for that). Doesn't count a view itself, since the
+// actual video being fetched for playback is the real signal of
+// someone watching, not just requesting its details.
 exports.getVideoById = async (req, res) => {
   const video = await ShopstreamVideo.findById(req.params.id);
   if (!video) return sendError(res, 404, 'Video not found.');
-  await ShopstreamVideo.incrementView(video.id);
   return sendSuccess(res, 200, 'Video retrieved.', { video });
 };
 
@@ -105,4 +107,20 @@ exports.adminDeleteVideo = async (req, res) => {
   if (!video) return sendError(res, 404, 'Video not found.');
   await ShopstreamVideo.delete(video.id);
   return sendSuccess(res, 200, 'Video deleted.', {});
+};
+
+// Serves the actual video bytes directly (not wrapped in JSON), so a
+// normal <video src="..."> tag can play it - the list/feed endpoint
+// deliberately excludes this data since it's too large for a list
+// response, and the JSON single-video endpoint is for detail views
+// that need the metadata alongside it.
+exports.getRawVideo = async (req, res) => {
+  const video = await ShopstreamVideo.findById(req.params.id);
+  if (!video || !video.video_data) return res.status(404).end();
+  await ShopstreamVideo.incrementView(video.id);
+  const base64 = video.video_data.replace(/^data:video\/\w+;base64,/, '');
+  const buffer = Buffer.from(base64, 'base64');
+  res.set('Content-Type', 'video/mp4');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(buffer);
 };

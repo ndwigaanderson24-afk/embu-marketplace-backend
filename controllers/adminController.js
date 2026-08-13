@@ -197,6 +197,16 @@ exports.deletePricingRule = async (req, res) => {
   return sendSuccess(res, 200, 'Pricing rule deleted.', {});
 };
 
+// POST /api/admin/pricing/migrate-existing-products - one-time action
+// (safe to run more than once - only touches products that haven't
+// been migrated yet). Treats each existing product's current price as
+// what the seller was asking for, then computes a real final price on
+// top of it using whatever rules/defaults are active right now.
+exports.migrateExistingProductPricing = async (req, res) => {
+  const result = await Product.migrateExistingPricing();
+  return sendSuccess(res, 200, `Migrated ${result.migrated} of ${result.totalFound} products.`, result);
+};
+
 exports.getReferralOverview = async (req, res) => {
   const [rows] = await pool.query(`
     SELECT re.*, ur.name AS referrer_name, ur.email AS referrer_email

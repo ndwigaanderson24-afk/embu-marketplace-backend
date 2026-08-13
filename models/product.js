@@ -18,6 +18,42 @@ async function priceProduct(sellerPrice, { category, fragile }) {
 }
 
 const Product = {
+  // Exposed for the price-preview endpoint, so a seller can see the
+  // final price before actually creating/saving anything.
+  async previewPrice(sellerPrice, { category, fragile }) {
+    return priceProduct(sellerPrice, { category, fragile });
+  },
+
+  // One-time migration: every product created before the pricing engine
+  // existed has a plain price and no seller_price at all. This treats
+  // that existing price as what the seller was actually asking for,
+  // then computes a new final price on top of it using the current
+  // rules/defaults - after this runs, that product behaves exactly like
+  // one created fresh under the new system.
+  //
+  // Only touches products where seller_price IS NULL, so running this
+  // twice is safe - it will never re-apply markup to an already-migrated
+  // or newly-created product.
+  async migrateExistingPricing() {
+    const [rows] = await pool.query('SELECT id, price, category, fragile FROM products WHERE seller_price IS NULL');
+    let migrated = 0;
+    const errors = [];
+    for (const row of rows) {
+      try {
+        const priced = await priceProduct(row.price, { category: row.category, fragile: !!row.fragile });
+        await pool.query(
+          `UPDATE products SET seller_price = ?, price = ?, price_margin = ?,
+           price_delivery_allocation = ?, price_risk_allocation = ? WHERE id = ?`,
+          [priced.sellerPrice, priced.finalPrice, priced.margin, priced.deliveryAllocation, priced.riskAllocation, row.id]
+        );
+        migrated++;
+      } catch (err) {
+        errors.push({ productId: row.id, error: err.message });
+      }
+    }
+    return { totalFound: rows.length, migrated, errors };
+  },
+
   async create(sellerId, data) {
     const priced = await priceProduct(data.seller_price, { category: data.category, fragile: !!data.fragile });
 

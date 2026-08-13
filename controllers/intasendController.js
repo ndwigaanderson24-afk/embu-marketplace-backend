@@ -191,7 +191,9 @@ exports.initiateCheckoutPayment = async (req, res) => {
   // Same math the real order will use - see Order.groupCartBySeller. This
   // is what we charge, so it MUST match what createFromCart bills later.
   const plan = Order.computeDeliveryPlan(cartItems, delivery.dest_county, delivery.type, delivery.weight_override);
-  const amount = Math.round(plan.groups.reduce((sum, g) => sum + g.subtotal + g.fee, 0));
+  // Delivery is already baked into each product's price - never add a
+  // fee here, or the buyer would be charged for delivery twice.
+  const amount = Math.round(plan.groups.reduce((sum, g) => sum + g.subtotal, 0));
   if (!amount || amount <= 0) return sendError(res, 400, 'Could not calculate a valid order total.');
 
   const apiRef = `ORD-${owner.userId || 'guest'}-${uuidv4().slice(0, 8)}`;

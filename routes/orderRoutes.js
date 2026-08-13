@@ -16,50 +16,116 @@ function isValidPhoneNumber(phone) {
   return phone && phone.replace(/\D/g, '').length >= 10;
 }
 
-// ---------- Checkout ----------
-// A raw, unpaid POST '/' checkout endpoint used to live here - it created
-// a real order and decremented real stock with no payment step at all
-// (the frontend never called it, correctly using the payment-verified
-// /api/intasend/checkout flow instead, but it was still live and
-// reachable by anyone who found it: a free, unpaid order with real stock
-// loss on every call). Removed entirely rather than gated, since there's
-// no legitimate case - admin included - for creating a real order
-// outside a confirmed payment. See intasendController.initiateCheckoutPayment
-// for the actual checkout flow; it creates the order only once IntaSend's
-// webhook confirms payment, using this same Order.createFromCart() call.
+// Buyers see subtotal/total (what they paid) but never how that price
+// breaks down internally - no commission, margin, risk allocation,
+// seller earnings, or per-item seller price. delivery_fee is stripped
+// too, since delivery is already baked into the price, not a separate
+// charge the buyer should see a number for.
+const ORDER_FIELDS_HIDDEN_FROM_BUYER = ['commission', 'margin_total', 'risk_allocation_total', 'seller_earnings', 'delivery_fee'];
+function stripOrderForBuyer(order) {
+  const clean = { ...order };
+  ORDER_FIELDS_HIDDEN_FROM_BUYER.forEach(f => delete clean[f]);
+  if (Array.isArray(clean.items)) clean.items = clean.items.map(i => { const c = { ...i }; delete c.seller_price; return c; });
+  return clean;
+}
+
+// Sellers see their own earnings and their own per-item price (it's
+// literally the number they set), and the existing top-line commission
+// figure - but not the newer, more granular margin/risk split, which
+// stays admin-only.
+const ORDER_FIELDS_HIDDEN_FROM_SELLER = ['margin_total', 'risk_allocation_total'];
+function stripOrderForSeller(order) {
+  const clean = { ...order };
+  ORDER_FIELDS_HIDDEN_FROM_SELLER.forEach(f => delete clean[f]);
+  return clean;
+}
+
+// ---------- Checkout (public - works for guests via session_id, or logged-in users) ----------
+// Body: { session_id?, name, phone, id_number, address, delivery: { type, dest_county, dest_area?, address?, weight_override?, referral_code? }, pickup_date? }
+router.post('/', optionalAuth, wrap(async (req, res) => {
+  const { session_id, name, phone, id_number, address, delivery, pickup_date } = req.body;
+  if (!name || !phone || !id_number) return sendError(res, 400, 'name, phone and id_number are required.');
+  if (!isValidPhoneNumber(phone)) return sendError(res, 400, 'Please enter a valid phone number.');
+  if (!delivery || !delivery.type || !delivery.dest_county) return sendError(res, 400, 'delivery.type and delivery.dest_county are required.');
+  if (delivery.type === 'delivery' && !delivery.address) return sendError(res, 400, 'delivery.address is required for home delivery.');
+
+  const owner = req.user ? { userId: req.user.id } : { sessionId: session_id };
+  if (!owner.userId && !owner.sessionId) return sendError(res, 400, 'session_id is required for guest checkout.');
+
+  const cartItems = await Cart.getItems(owner);
+  if (!cartItems.length) return sendError(res, 400, 'Your cart is empty.');
+
+  for (const item of cartItems) {
+    if (item.qty > item.stock) return sendError(res, 400, `Insufficient stock for "${item.name}" (${item.stock} left).`);
+  }
+
+  const orders = await Order.createFromCart(cartItems, {
+    userId: req.user ? req.user.id : null, name, phone, idNumber: id_number, address
+  }, {
+    type: delivery.type,
+    destCounty: delivery.dest_county,
+    destArea: delivery.dest_area,
+    address: delivery.address,
+    weightOverride: delivery.weight_override,
+    referralCode: delivery.referral_code,
+    pickupDate: pickup_date || null
+  });
+
+  await Cart.clear(owner);
+
+  return sendSuccess(res, 201, orders.length > 1
+    ? `${orders.length} orders placed (one per seller).`
+    : 'Order placed.', { orders });
+}));
+
+// ---------- Delivery price preview (no order created - for the cart page live total) ----------
 router.post('/preview', optionalAuth, wrap(async (req, res) => {
   const { session_id, dest_county, delivery_type, weight_override } = req.body;
   const owner = req.user ? { userId: req.user.id } : { sessionId: session_id };
   const cartItems = await Cart.getItems(owner);
   const plan = Order.computeDeliveryPlan(cartItems, dest_county, delivery_type, weight_override);
-  return sendSuccess(res, 200, 'Delivery plan calculated.', plan);
+  // This is a buyer-facing preview (the cart page's live total) - strip
+  // the internal breakdown (seller price, margin, delivery/risk
+  // allocation) from each group before it ever leaves the server. The
+  // buyer should see only that delivery is free, never the numbers
+  // behind it.
+  const safePlan = {
+    totalWeight: plan.totalWeight,
+    groups: plan.groups.map(g => ({ sellerId: g.sellerId, county: g.county, weight: g.weight, subtotal: g.subtotal }))
+  };
+  return sendSuccess(res, 200, 'Delivery plan calculated.', safePlan);
 }));
 
 // ---------- Logged-in customer's own order history ----------
 router.get('/customer/mine', protect, wrap(async (req, res) => {
   const orders = await Order.findByCustomerUserId(req.user.id);
-  return sendSuccess(res, 200, 'Orders retrieved.', { orders });
+  return sendSuccess(res, 200, 'Orders retrieved.', { orders: orders.map(stripOrderForBuyer) });
 }));
 
 // ---------- Public tracking ----------
 router.get('/:trackingNumber/track', wrap(async (req, res) => {
   const order = await Order.findByTrackingNumber(req.params.trackingNumber);
   if (!order) return sendError(res, 404, 'Order not found.');
-  return sendSuccess(res, 200, 'Order found.', { order });
+  return sendSuccess(res, 200, 'Order found.', { order: stripOrderForBuyer(order) });
 }));
 
 // ---------- Seller ----------
 router.get('/mine', protect, requireActiveSeller, wrap(async (req, res) => {
   const orders = await Order.findBySeller(req.user.id, req.query);
-  return sendSuccess(res, 200, 'Orders retrieved.', { orders });
+  return sendSuccess(res, 200, 'Orders retrieved.', { orders: orders.map(stripOrderForSeller) });
 }));
 
 router.get('/:id', protect, wrap(async (req, res) => {
   const order = await Order.findById(req.params.id);
   if (!order) return sendError(res, 404, 'Order not found.');
-  const isOwner = req.user && (order.seller_id === req.user.id || order.customer_user_id === req.user.id);
-  if (!isOwner && !req.isAdmin) return sendError(res, 403, 'You do not have access to this order.');
-  return sendSuccess(res, 200, 'Order retrieved.', { order });
+  const isSellerOwner = req.user && order.seller_id === req.user.id;
+  const isBuyerOwner = req.user && order.customer_user_id === req.user.id;
+  if (!isSellerOwner && !isBuyerOwner && !req.isAdmin) return sendError(res, 403, 'You do not have access to this order.');
+  // Admin sees everything; a seller sees their own earnings and item
+  // prices; a buyer sees only what they paid, nothing about how it
+  // breaks down internally.
+  const safeOrder = req.isAdmin ? order : isSellerOwner ? stripOrderForSeller(order) : stripOrderForBuyer(order);
+  return sendSuccess(res, 200, 'Order retrieved.', { order: safeOrder });
 }));
 
 // Canonical 6-stage lifecycle: Pending -> Accepted -> Packed -> In Transit

@@ -13,38 +13,58 @@ const Order = {
   // Groups cart rows (each already joined to its product) by seller,
   // computing each group's own weight/subtotal - the shared foundation
   // for both a price preview and the actual order-splitting below.
+  //
+  // subtotal is what the buyer pays (product.price is already
+  // all-inclusive). sellerSubtotal is what sellers are actually owed
+  // (product.seller_price) - the gap between the two is exactly
+  // KenLynk's margin + delivery allocation + risk allocation combined,
+  // already baked into each product's displayed price, never charged
+  // as a separate line item.
   groupCartBySeller(cartItems) {
     const groups = {};
     cartItems.forEach(item => {
       const sellerKey = item.seller_id || 'platform';
       const county = item.county || PLATFORM_DEFAULT_COUNTY;
       if (!groups[sellerKey]) {
-        groups[sellerKey] = { sellerId: item.seller_id || null, county, items: [], weight: 0, subtotal: 0 };
+        groups[sellerKey] = {
+          sellerId: item.seller_id || null, county, items: [], weight: 0,
+          subtotal: 0, sellerSubtotal: 0, marginTotal: 0, deliveryAllocationTotal: 0, riskAllocationTotal: 0
+        };
       }
-      groups[sellerKey].items.push(item);
-      groups[sellerKey].weight += Number(item.weight || 1) * item.qty;
-      groups[sellerKey].subtotal += Number(item.price) * item.qty;
+      const g = groups[sellerKey];
+      g.items.push(item);
+      g.weight += Number(item.weight || 1) * item.qty;
+      g.subtotal += Number(item.price) * item.qty;
+      g.sellerSubtotal += Number(item.seller_price != null ? item.seller_price : item.price) * item.qty;
+      g.marginTotal += Number(item.price_margin || 0) * item.qty;
+      g.deliveryAllocationTotal += Number(item.price_delivery_allocation || 0) * item.qty;
+      g.riskAllocationTotal += Number(item.price_risk_allocation || 0) * item.qty;
     });
     return Object.values(groups);
   },
 
   // Full pricing preview for the cart page - same math as checkout, but
   // without writing anything, so the frontend can show a live total.
+  //
+  // logisticsFee is an ESTIMATE of actual shipping cost (weight + route
+  // based) purely for admin/internal reference - it is never added to
+  // what the buyer pays. Delivery is already funded by each product's
+  // baked-in delivery allocation (deliveryAllocationTotal per group).
   computeDeliveryPlan(cartItems, destCounty, deliveryType, weightOverride) {
     const groups = this.groupCartBySeller(cartItems);
     const autoTotalWeight = groups.reduce((s, g) => s + g.weight, 0);
     const useOverride = typeof weightOverride === 'number' && weightOverride > 0;
     const scale = useOverride && autoTotalWeight > 0 ? weightOverride / autoTotalWeight : 1;
 
-    let totalFee = 0;
+    let totalLogisticsFee = 0;
     const planGroups = groups.map(g => {
       const weight = useOverride ? (autoTotalWeight > 0 ? g.weight * scale : weightOverride / groups.length) : g.weight;
-      const fee = calculateDeliveryFee(weight, g.county, destCounty, deliveryType);
-      totalFee += fee;
-      return { ...g, weight, fee };
+      const logisticsFee = calculateDeliveryFee(weight, g.county, destCounty, deliveryType);
+      totalLogisticsFee += logisticsFee;
+      return { ...g, weight, logisticsFee };
     });
 
-    return { totalFee, totalWeight: useOverride ? weightOverride : autoTotalWeight, groups: planGroups };
+    return { totalLogisticsFee, totalWeight: useOverride ? weightOverride : autoTotalWeight, groups: planGroups };
   },
 
   // Creates one order row per seller group, decrements stock, and awards
@@ -61,39 +81,35 @@ const Order = {
       for (const group of plan.groups) {
         const orderNumber = generateOrderNumber();
         const trackingNumber = generateTrackingNumber();
-        const commissionRate = delivery.type === 'pickup' ? 0.05 : 0.08;
-        const commission = group.subtotal * commissionRate;
-        const sellerEarnings = group.subtotal - commission;
-        const total = group.subtotal + group.fee;
+        // Delivery is already paid for via each product's baked-in price -
+        // the buyer is never charged group.logisticsFee on top. total is
+        // simply the sum of already-inclusive product prices.
+        const total = group.subtotal;
+        const sellerEarnings = group.sellerSubtotal;
+        const commission = group.subtotal - sellerEarnings; // KenLynk's actual take: margin + delivery + risk, combined
 
         const [result] = await conn.query(
           `INSERT INTO orders
             (order_number, tracking_number, seller_id, customer_user_id, customer_name, customer_phone,
              customer_id_number, customer_address, status, delivery_type, delivery_address,
              origin_county, dest_county, dest_area, weight_kg, delivery_fee, subtotal, total,
-             commission, seller_earnings, referral_code, pickup_date)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+             commission, margin_total, risk_allocation_total, seller_earnings, referral_code, pickup_date)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [orderNumber, trackingNumber, group.sellerId, customer.userId || null, customer.name, customer.phone,
            customer.idNumber, customer.address || null, delivery.pickupDate ? 'Booked' : 'Pending',
            delivery.type, delivery.type === 'delivery' ? delivery.address : null,
-           group.county, delivery.destCounty, delivery.destArea || null, group.weight, group.fee,
-           group.subtotal, total, commission, sellerEarnings, delivery.referralCode || null, delivery.pickupDate || null]
+           group.county, delivery.destCounty, delivery.destArea || null, group.weight, group.deliveryAllocationTotal,
+           group.subtotal, total, commission, group.marginTotal, group.riskAllocationTotal, sellerEarnings,
+           delivery.referralCode || null, delivery.pickupDate || null]
         );
         const orderId = result.insertId;
 
         for (const item of group.items) {
           await conn.query(
-            'INSERT INTO order_items (order_id, product_id, variant_id, variant_name, variant_sku, product_name, qty, price) VALUES (?,?,?,?,?,?,?,?)',
-            [orderId, item.id, item.variant_id || null, item.variant_name || null, item.variant_sku || null, item.name, item.qty, item.price]
+            'INSERT INTO order_items (order_id, product_id, product_name, qty, price, seller_price) VALUES (?,?,?,?,?,?)',
+            [orderId, item.id, item.name, item.qty, item.price, item.seller_price != null ? item.seller_price : item.price]
           );
-          // A variant (e.g. a specific colour) has its own stock, tracked
-          // separately from the base product's - decrement whichever one
-          // actually applies to what was bought.
-          if (item.variant_id) {
-            await conn.query('UPDATE product_variants SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.variant_id]);
-          } else {
-            await conn.query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.id]);
-          }
+          await conn.query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.id]);
         }
 
         // Referral commission, evaluated per sub-order (matches the website:

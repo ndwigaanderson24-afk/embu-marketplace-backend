@@ -18,37 +18,50 @@ function resolveOwner(req) {
   return sessionId ? { sessionId } : null;
 }
 
+// Cart items carry the full product row (p.* in Cart.getItems), which
+// now includes the internal pricing breakdown - this is a buyer-facing
+// surface, so that breakdown must never reach the response. The buyer
+// sees only the item's final price.
+const PRICE_INTERNAL_FIELDS = ['seller_price', 'price_margin', 'price_delivery_allocation', 'price_risk_allocation'];
+function stripPricingForBuyer(items) {
+  return items.map(item => {
+    const clean = { ...item };
+    PRICE_INTERNAL_FIELDS.forEach(f => delete clean[f]);
+    return clean;
+  });
+}
+
 router.get('/', optionalAuth, wrap(async (req, res) => {
   const owner = resolveOwner(req);
   if (!owner) return sendError(res, 400, 'session_id is required for guest carts.');
   const items = await Cart.getItems(owner);
-  return sendSuccess(res, 200, 'Cart retrieved.', { items });
+  return sendSuccess(res, 200, 'Cart retrieved.', { items: stripPricingForBuyer(items) });
 }));
 
 router.post('/add', optionalAuth, wrap(async (req, res) => {
   const owner = resolveOwner(req);
   if (!owner) return sendError(res, 400, 'session_id is required for guest carts.');
-  const { product_id, qty, variant_id, variant_name } = req.body;
+  const { product_id, qty } = req.body;
   if (!product_id) return sendError(res, 400, 'product_id is required.');
-  await Cart.addItem(owner, product_id, Number(qty) || 1, variant_id || null, variant_name || null);
+  await Cart.addItem(owner, product_id, Number(qty) || 1);
   const items = await Cart.getItems(owner);
-  return sendSuccess(res, 200, 'Added to cart.', { items });
+  return sendSuccess(res, 200, 'Added to cart.', { items: stripPricingForBuyer(items) });
 }));
 
 router.put('/update', optionalAuth, wrap(async (req, res) => {
   const owner = resolveOwner(req);
   if (!owner) return sendError(res, 400, 'session_id is required for guest carts.');
-  const { product_id, qty, variant_id } = req.body;
+  const { product_id, qty } = req.body;
   if (!product_id || qty === undefined) return sendError(res, 400, 'product_id and qty are required.');
-  await Cart.updateQty(owner, product_id, Number(qty), variant_id || null);
+  await Cart.updateQty(owner, product_id, Number(qty));
   const items = await Cart.getItems(owner);
-  return sendSuccess(res, 200, 'Cart updated.', { items });
+  return sendSuccess(res, 200, 'Cart updated.', { items: stripPricingForBuyer(items) });
 }));
 
 router.delete('/:productId', optionalAuth, wrap(async (req, res) => {
   const owner = resolveOwner(req);
   if (!owner) return sendError(res, 400, 'session_id is required for guest carts.');
-  await Cart.removeItem(owner, req.params.productId, req.query.variant_id || null);
+  await Cart.removeItem(owner, req.params.productId);
   return sendSuccess(res, 200, 'Removed from cart.');
 }));
 

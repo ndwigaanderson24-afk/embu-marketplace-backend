@@ -34,7 +34,8 @@ const ShopstreamVideo = {
     const [rows] = await pool.query(
       `SELECT sv.id, sv.seller_id, sv.title, sv.caption, sv.category, sv.hashtags, sv.thumbnail,
               sv.product_ids, sv.status, sv.view_count, sv.like_count, sv.save_count, sv.created_at,
-              u.business_name AS seller_business_name, u.email AS seller_email
+              u.business_name AS seller_business_name, u.email AS seller_email,
+              (SELECT COUNT(*) FROM shopstream_video_comments c WHERE c.video_id = sv.id) AS comment_count
        FROM shopstream_videos sv JOIN users u ON u.id = sv.seller_id
        WHERE sv.status = 'published' ORDER BY sv.created_at DESC`
     );

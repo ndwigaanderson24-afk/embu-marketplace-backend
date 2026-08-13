@@ -5,6 +5,31 @@ const Review = require('../models/review');
 const Order = require('../models/order');
 const { sendSuccess, sendError } = require('../helpers');
 
+// The pricing breakdown (seller_price, price_margin,
+// price_delivery_allocation, price_risk_allocation) must never reach a
+// buyer - they see only the final, all-inclusive `price`. Admin-only
+// endpoints (adminGetAll etc) skip this and return the full row.
+const PRICE_INTERNAL_FIELDS = ['seller_price', 'price_margin', 'price_delivery_allocation', 'price_risk_allocation'];
+
+function stripPricingForBuyer(product) {
+  if (!product) return product;
+  const clean = { ...product };
+  PRICE_INTERNAL_FIELDS.forEach(f => delete clean[f]);
+  return clean;
+}
+
+// A seller can see their own asking price and the final buyer price
+// (so they understand what changed), but not the granular margin/
+// delivery/risk split - that stays admin-only.
+function stripBreakdownForSeller(product) {
+  if (!product) return product;
+  const clean = { ...product };
+  delete clean.price_margin;
+  delete clean.price_delivery_allocation;
+  delete clean.price_risk_allocation;
+  return clean;
+}
+
 // POST /api/products  (protected, requireActiveSeller, multipart/form-data field "images")
 exports.create = async (req, res) => {
   const { name, seller_price } = req.body;
@@ -16,13 +41,13 @@ exports.create = async (req, res) => {
   const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : (req.body.image || null);
   const productId = await Product.create(req.user.id, { ...req.body, county: req.user.county, image });
   const product = await Product.findById(productId);
-  return sendSuccess(res, 201, 'Product added.', { product });
+  return sendSuccess(res, 201, 'Product added.', { product: stripBreakdownForSeller(product) });
 };
 
 // GET /api/products/mine  (protected)
 exports.getMine = async (req, res) => {
   const products = await Product.findBySeller(req.user.id, req.query);
-  return sendSuccess(res, 200, 'Products retrieved.', { products });
+  return sendSuccess(res, 200, 'Products retrieved.', { products: products.map(stripBreakdownForSeller) });
 };
 
 // PUT /api/products/:id  (protected, multipart/form-data field "images" optional)
@@ -31,7 +56,7 @@ exports.update = async (req, res) => {
   const updated = await Product.update(req.params.id, req.user.id, { ...req.body, ...(image ? { image } : {}) });
   if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
   const product = await Product.findById(req.params.id);
-  return sendSuccess(res, 200, 'Product updated.', { product });
+  return sendSuccess(res, 200, 'Product updated.', { product: stripBreakdownForSeller(product) });
 };
 
 // DELETE /api/products/:id  (protected)
@@ -44,7 +69,7 @@ exports.remove = async (req, res) => {
 // GET /api/products  (public storefront)
 exports.getPublicList = async (req, res) => {
   const products = await Product.findPublic(req.query);
-  return sendSuccess(res, 200, 'Products retrieved.', { products });
+  return sendSuccess(res, 200, 'Products retrieved.', { products: products.map(stripPricingForBuyer) });
 };
 
 // GET /api/products/:id  (public)
@@ -52,7 +77,7 @@ exports.getOne = async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return sendError(res, 404, 'Product not found.');
   const reviews = await Review.findByProduct(req.params.id);
-  return sendSuccess(res, 200, 'Product retrieved.', { product, reviews });
+  return sendSuccess(res, 200, 'Product retrieved.', { product: stripPricingForBuyer(product), reviews });
 };
 
 // POST /api/products/:id/reviews  (protected)

@@ -108,6 +108,15 @@ const ShopstreamVideoComment = {
       [videoId]
     );
     return rows;
+  },
+
+  async findById(id) {
+    const [rows] = await pool.query('SELECT * FROM shopstream_video_comments WHERE id = ?', [id]);
+    return rows[0] || null;
+  },
+
+  async delete(id) {
+    await pool.query('DELETE FROM shopstream_video_comments WHERE id = ?', [id]);
   }
 };
 

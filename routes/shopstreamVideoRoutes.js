@@ -24,6 +24,7 @@ router.post('/:id/comments', optionalAuth, wrap(vc.addComment));
 router.get('/:id/comments', wrap(vc.getComments));
 router.delete('/:id', protect, requireActiveSeller, wrap(vc.deleteVideo));
 router.put('/:id', protect, requireActiveSeller, wrap(vc.updateVideo));
+router.delete('/:id/comments/:commentId', protect, wrap(vc.deleteComment));
 
 // Admin (mounted separately at /api/admin/shopstream/videos).
 const adminRouter = express.Router();
@@ -31,5 +32,6 @@ adminRouter.use(protect, requireAdmin);
 adminRouter.get('/', wrap(vc.adminGetAllVideos));
 adminRouter.post('/', wrap(vc.adminCreateVideo));
 adminRouter.delete('/:id', wrap(vc.adminDeleteVideo));
+adminRouter.delete('/comments/:commentId', wrap(vc.adminDeleteComment));
 
 module.exports = { videoRoutes: router, adminVideoRoutes: adminRouter };

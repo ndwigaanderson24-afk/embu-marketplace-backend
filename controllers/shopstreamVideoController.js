@@ -98,6 +98,29 @@ exports.getComments = async (req, res) => {
   return sendSuccess(res, 200, 'Comments retrieved.', { comments });
 };
 
+// A comment isn't tied to a real account (ShopStream allows guest
+// comments), so ownership is checked by matching the logged-in user's
+// name against the comment's sender_name - the same trust level this
+// feature already uses everywhere else (sender_name is client-supplied,
+// not cryptographically verified).
+exports.deleteComment = async (req, res) => {
+  const comment = await ShopstreamVideoComment.findById(req.params.commentId);
+  if (!comment) return sendError(res, 404, 'Comment not found.');
+  const requesterName = req.user ? req.user.name : null;
+  if (!requesterName || comment.sender_name !== requesterName) {
+    return sendError(res, 403, 'You can only delete your own comments.');
+  }
+  await ShopstreamVideoComment.delete(comment.id);
+  return sendSuccess(res, 200, 'Comment deleted.', {});
+};
+
+exports.adminDeleteComment = async (req, res) => {
+  const comment = await ShopstreamVideoComment.findById(req.params.commentId);
+  if (!comment) return sendError(res, 404, 'Comment not found.');
+  await ShopstreamVideoComment.delete(comment.id);
+  return sendSuccess(res, 200, 'Comment deleted.', {});
+};
+
 // ── Admin ────────────────────────────────────────────────────────────
 exports.adminGetAllVideos = async (req, res) => {
   const videos = await ShopstreamVideo.findAllForAdmin();

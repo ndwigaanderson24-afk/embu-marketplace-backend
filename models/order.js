@@ -4,6 +4,7 @@
 // delivery fee computed from THAT seller's county.
 
 const pool = require('../db');
+const Notification = require('./notification');
 const {
   generateOrderNumber, generateTrackingNumber, calculateDeliveryFee,
   PLATFORM_DEFAULT_COUNTY, REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL
@@ -129,6 +130,24 @@ const Order = {
       }
 
       await conn.commit();
+
+      // Notify each seller now that their order is genuinely committed -
+      // done after commit, not inside the transaction, so a rollback can
+      // never leave a "ghost" notification for an order that doesn't
+      // actually exist. Platform products (no seller) are skipped.
+      for (const created of createdOrders) {
+        if (!created.seller_id) continue;
+        try {
+          await Notification.create(created.seller_id, {
+            title: '🛒 New Order!',
+            message: `You have a new order (#${created.order_number}) worth KES ${Number(created.total).toLocaleString()}.`,
+            type: 'new_order'
+          });
+        } catch (notifyErr) {
+          console.error('Failed to notify seller of new order:', notifyErr.message);
+        }
+      }
+
       return createdOrders;
     } catch (err) {
       await conn.rollback();
@@ -192,6 +211,11 @@ const Order = {
       order.items = items;
     }
     return rows;
+  },
+
+  async countSince(sinceTimestamp) {
+    const [rows] = await pool.query('SELECT COUNT(*) AS count FROM orders WHERE placed_at > ?', [sinceTimestamp]);
+    return rows[0].count;
   },
 
   // The 6-stage lifecycle: Pending -> Accepted -> Packed -> In Transit ->

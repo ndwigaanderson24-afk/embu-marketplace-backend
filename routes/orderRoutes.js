@@ -188,6 +188,19 @@ router.get('/admin/all', protect, requireAdmin, wrap(async (req, res) => {
   return sendSuccess(res, 200, 'Orders retrieved.', { orders });
 }));
 
+// GET /api/orders/admin/new-count?since=<ISO timestamp> - a simple "how
+// many orders have come in since I last checked" badge for the admin
+// dashboard. The admin's own browser remembers when they last looked
+// (bookkeeping for themselves, not shared data), and this just answers
+// against the real orders table - no separate notification row needed
+// since there's realistically one or two admins, not many.
+router.get('/admin/new-count', protect, requireAdmin, wrap(async (req, res) => {
+  const since = req.query.since;
+  if (!since) return sendError(res, 400, 'since is required (ISO timestamp).');
+  const count = await Order.countSince(since);
+  return sendSuccess(res, 200, 'Count retrieved.', { count });
+}));
+
 // Admin can update ANY order's status (no seller-ownership check, unlike
 // the seller-facing PUT /:id/status above).
 router.put('/admin/:id/status', protect, requireAdmin, wrap(async (req, res) => {

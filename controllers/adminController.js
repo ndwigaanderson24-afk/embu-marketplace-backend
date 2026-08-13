@@ -8,6 +8,7 @@ const Product = require('../models/product');
 const FeaturedRequest = require('../models/featuredRequest');
 const FeaturedLiveRequest = require('../models/featuredLiveRequest');
 const PricingRule = require('../models/pricingRule');
+const AdminNotification = require('../models/adminNotification');
 const PricingSettings = require('../models/pricingSettings');
 
 async function logActivity(actor, action, details) {
@@ -205,6 +206,13 @@ exports.deletePricingRule = async (req, res) => {
 exports.migrateExistingProductPricing = async (req, res) => {
   const result = await Product.migrateExistingPricing();
   return sendSuccess(res, 200, `Migrated ${result.migrated} of ${result.totalFound} products.`, result);
+};
+
+// GET /api/admin/notifications - the real broadcast feed every admin
+// account sees, including full order details behind each entry.
+exports.getAdminNotifications = async (req, res) => {
+  const notifications = await AdminNotification.findRecent(req.query.limit || 50);
+  return sendSuccess(res, 200, 'Notifications retrieved.', { notifications });
 };
 
 exports.getReferralOverview = async (req, res) => {

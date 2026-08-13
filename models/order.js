@@ -5,6 +5,7 @@
 
 const pool = require('../db');
 const Notification = require('./notification');
+const AdminNotification = require('./adminNotification');
 const {
   generateOrderNumber, generateTrackingNumber, calculateDeliveryFee,
   PLATFORM_DEFAULT_COUNTY, REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL
@@ -126,25 +127,52 @@ const Order = {
           }
         }
 
-        createdOrders.push({ id: orderId, order_number: orderNumber, tracking_number: trackingNumber, seller_id: group.sellerId, total });
+        createdOrders.push({
+          id: orderId, order_number: orderNumber, tracking_number: trackingNumber,
+          seller_id: group.sellerId, total,
+          itemsSummary: group.items.map(i => `${i.name} x${i.qty}`).join(', '),
+          deliveryType: delivery.type, destCounty: delivery.destCounty, destArea: delivery.destArea
+        });
       }
 
       await conn.commit();
 
-      // Notify each seller now that their order is genuinely committed -
-      // done after commit, not inside the transaction, so a rollback can
-      // never leave a "ghost" notification for an order that doesn't
-      // actually exist. Platform products (no seller) are skipped.
+      // Notify each seller AND admin now that the order is genuinely
+      // committed - done after commit, not inside the transaction, so a
+      // rollback can never leave a "ghost" notification for an order
+      // that doesn't actually exist. Both messages carry the full
+      // details (order number, buyer, items, delivery) alongside the
+      // order number itself, so either party can follow up on anything
+      // using just that one reference code - no need to dig through the
+      // dashboard to find the details behind it.
       for (const created of createdOrders) {
-        if (!created.seller_id) continue;
+        const deliveryLine = created.deliveryType === 'delivery'
+          ? `Delivery to ${created.destArea ? created.destArea + ', ' : ''}${created.destCounty}`
+          : 'Customer pickup';
+        const detailMessage = `Order #${created.order_number} - ${customer.name} (${customer.phone}). ` +
+          `Items: ${created.itemsSummary}. ${deliveryLine}. Total: KES ${Number(created.total).toLocaleString()}.`;
+
+        if (created.seller_id) {
+          try {
+            await Notification.create(created.seller_id, {
+              title: '🛒 New Order!',
+              message: detailMessage,
+              type: 'new_order'
+            });
+          } catch (notifyErr) {
+            console.error('Failed to notify seller of new order:', notifyErr.message);
+          }
+        }
+
         try {
-          await Notification.create(created.seller_id, {
-            title: '🛒 New Order!',
-            message: `You have a new order (#${created.order_number}) worth KES ${Number(created.total).toLocaleString()}.`,
-            type: 'new_order'
+          await AdminNotification.create({
+            title: `🛒 New Order #${created.order_number}`,
+            message: detailMessage,
+            type: 'new_order',
+            orderId: created.id
           });
         } catch (notifyErr) {
-          console.error('Failed to notify seller of new order:', notifyErr.message);
+          console.error('Failed to notify admin of new order:', notifyErr.message);
         }
       }
 

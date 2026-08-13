@@ -22,6 +22,7 @@ router.post('/sellers/:id/activate', wrap(admin.activateSeller));
 
 router.get('/sellers-earnings', wrap(admin.getSellerEarningsOverview));
 router.get('/referrals', wrap(admin.getReferralOverview));
+router.get('/notifications', wrap(admin.getAdminNotifications));
 router.get('/featured-requests', wrap(admin.getFeaturedRequests));
 router.post('/featured-requests/:id/approve', wrap(admin.approveFeaturedRequest));
 router.post('/featured-requests/:id/reject', wrap(admin.rejectFeaturedRequest));

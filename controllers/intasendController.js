@@ -20,63 +20,11 @@ const User = require('../models/user');
 const Cart = require('../models/cart');
 const Order = require('../models/order');
 const { sendSuccess, sendError, getSubscriptionPrice, getSubscriptionMonths, SUBSCRIPTION_PLANS, addMonths, todayStr } = require('../helpers');
+const Product = require('../models/product');
+const FeaturedRequest = require('../models/featuredRequest');
 
 function isValidPhoneNumber(phone) {
   return phone && phone.replace(/\D/g, '').length >= 10;
-}
-
-// The IntaSend SDK's errors don't always have a useful .message - the
-// real reason (e.g. "invalid_phone_number", "invalid_amount", an auth
-// failure) usually lives in the raw HTTP response body, which the SDK
-// sometimes hands back as an undecoded Buffer rather than parsed JSON.
-// This pulls the real message out wherever it's hiding and returns a
-// plain, readable string - used both for server-side logging and for
-// the message actually returned to the caller, so a specific error
-// ("invalid_phone_number") shows up instead of a generic fallback.
-function describeIntasendError(err) {
-  // The SDK sometimes rejects with the raw response body itself (a
-  // Buffer or plain string), not a proper Error object with a .response
-  // property - check for that shape first, but only when err genuinely
-  // IS a buffer/string. Stringifying a real Error object loses its
-  // message entirely (message/stack aren't enumerable), so never treat
-  // an actual Error instance as candidate #1 or it hides the real data
-  // further down this list.
-  const candidates = [
-    (Buffer.isBuffer(err) || typeof err === 'string') ? err : null,
-    err && err.response && err.response.data,
-    err && err.response && err.response.body,
-    err && err.data,
-    err && err.body
-  ];
-  let firstDecodedText = null;
-  for (const c of candidates) {
-    if (!c) continue;
-    let text;
-    try {
-      text = Buffer.isBuffer(c) ? c.toString('utf8') : (typeof c === 'string' ? c : JSON.stringify(c));
-    } catch (decodeErr) { continue; }
-    if (firstDecodedText === null) firstDecodedText = text;
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed && parsed.errors && parsed.errors.length) {
-        return parsed.errors.map(e => e.detail || e.code || JSON.stringify(e)).join('; ');
-      }
-      if (parsed && (parsed.message || parsed.error)) {
-        return parsed.message || parsed.error;
-      }
-      return text; // valid JSON but not a shape we recognise - still show it
-    } catch (parseErr) { /* not JSON - keep looking, but remember this text as a fallback */ }
-  }
-  // Not valid JSON anywhere, but we did decode SOME text - that's still
-  // more useful than nothing.
-  if (firstDecodedText) return firstDecodedText;
-  // Nothing decodable found anywhere - dump everything we've got so the
-  // next log at least shows the raw shape instead of a dead end.
-  try {
-    return 'Undecodable error - raw: ' + require('util').inspect(err, { depth: 4, maxStringLength: 2000 });
-  } catch (inspectErr) {
-    return err && err.message ? err.message : 'Unknown IntaSend error';
-  }
 }
 
 // POST /api/intasend/subscribe  { plan }  (protected, approved seller)
@@ -113,10 +61,8 @@ exports.initiateSubscriptionPayment = async (req, res) => {
       invoice_id: invoiceId
     });
   } catch (err) {
-    const reason = describeIntasendError(err);
-    console.error('IntaSend subscription STK push failed:', reason);
-    await IntasendPayment.updateStatus(apiRef, 'FAILED', reason);
-    return sendError(res, 502, reason);
+    await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
+    return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
   }
 };
 
@@ -128,6 +74,55 @@ exports.initiateSubscriptionPayment = async (req, res) => {
 // Mirrors the validation in orderRoutes.js POST / exactly, but instead of
 // creating the order immediately, it charges the buyer first and only
 // creates the order once the webhook confirms payment.
+// POST /api/intasend/feature-product  { product_id, days }  (protected, seller)
+// Real payment for "Feature My Product" - price is computed here, never
+// trusted from the client. Once the webhook confirms payment, a real
+// pending request is created for admin to review - the product does
+// NOT become featured just from paying, matching the intended
+// "pay then admin approves" flow.
+exports.initiateFeatureProductPayment = async (req, res) => {
+  const { product_id, days } = req.body;
+  const daysNum = parseInt(days, 10);
+  if (!product_id || ![1, 7].includes(daysNum)) {
+    return sendError(res, 400, 'days must be 1 or 7.');
+  }
+  const product = await Product.findById(product_id);
+  if (!product || product.seller_id !== req.user.id) {
+    return sendError(res, 403, 'That product is not yours.');
+  }
+  if (!req.user.phone) return sendError(res, 400, 'Your account has no phone number on file.');
+
+  const amount = daysNum === 1 ? 100 : 500;
+  const apiRef = `FEAT-${req.user.id}-${uuidv4().slice(0, 8)}`;
+
+  await IntasendPayment.create({
+    api_ref: apiRef, phone: req.user.phone, amount, purpose: 'featured_product',
+    payload_json: JSON.stringify({ product_id, days: daysNum, seller_id: req.user.id }),
+    user_id: req.user.id
+  });
+
+  try {
+    const stkResult = await initiateStkPush({
+      phone: req.user.phone,
+      amount,
+      email: req.user.email,
+      apiRef,
+      narrative: `KenLynk Marketplace - Feature "${product.name}" for ${daysNum} day${daysNum === 1 ? '' : 's'}`
+    });
+
+    const invoiceId = stkResult && stkResult.invoice ? stkResult.invoice.invoice_id : null;
+    if (invoiceId) await IntasendPayment.setInvoiceId(apiRef, invoiceId);
+
+    return sendSuccess(res, 200, 'Payment prompt sent to your phone. Enter your M-Pesa PIN to complete.', {
+      api_ref: apiRef,
+      invoice_id: invoiceId
+    });
+  } catch (err) {
+    await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
+    return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
+  }
+};
+
 exports.initiateCheckoutPayment = async (req, res) => {
   const { session_id, name, phone, id_number, address, delivery, pickup_date } = req.body;
   if (!name || !phone || !id_number) return sendError(res, 400, 'name, phone and id_number are required.');
@@ -187,10 +182,8 @@ exports.initiateCheckoutPayment = async (req, res) => {
       invoice_id: invoiceId
     });
   } catch (err) {
-    const reason = describeIntasendError(err);
-    console.error('IntaSend checkout STK push failed:', reason);
-    await IntasendPayment.updateStatus(apiRef, 'FAILED', reason);
-    return sendError(res, 502, reason);
+    await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
+    return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
   }
 };
 
@@ -279,6 +272,24 @@ exports.webhook = async (req, res) => {
         } catch (orderErr) {
           console.error('Failed to create order after confirmed payment:', orderErr.message);
           await IntasendPayment.setResult(api_ref, JSON.stringify({ error: orderErr.message }));
+        }
+      }
+
+      // Payment confirmed for a "Feature My Product" request - creates a
+      // real pending request for admin to review. The product does NOT
+      // become featured yet; that only happens once admin approves it
+      // (see adminController.approveFeaturedRequest).
+      if (payment.purpose === 'featured_product' && payment.payload_json) {
+        try {
+          const payload = JSON.parse(payment.payload_json);
+          const requestId = await FeaturedRequest.create({
+            seller_id: payload.seller_id, product_id: payload.product_id,
+            days: payload.days, price: payment.amount
+          });
+          await IntasendPayment.setResult(api_ref, JSON.stringify({ featured_request_id: requestId }));
+        } catch (featErr) {
+          console.error('Failed to create featured request after confirmed payment:', featErr.message);
+          await IntasendPayment.setResult(api_ref, JSON.stringify({ error: featErr.message }));
         }
       }
     }

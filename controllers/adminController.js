@@ -4,6 +4,8 @@ const pool = require('../db');
 const User = require('../models/user');
 const Notification = require('../models/notification');
 const { sendSuccess, sendError } = require('../helpers');
+const Product = require('../models/product');
+const FeaturedRequest = require('../models/featuredRequest');
 
 async function logActivity(actor, action, details) {
   try { await pool.query('INSERT INTO activity_logs (actor, action, details) VALUES (?,?,?)', [actor, action, details || null]); }
@@ -47,6 +49,17 @@ exports.rejectSeller = async (req, res) => {
   return sendSuccess(res, 200, 'Seller application rejected.');
 };
 
+// POST /api/admin/sellers/:id/reset - clears a rejected application back
+// to no-status, so the seller can genuinely reapply from scratch (their
+// old application data isn't preserved, matching what "reset" implies).
+exports.resetSeller = async (req, res) => {
+  const seller = await User.findById(req.params.id);
+  if (!seller) return sendError(res, 404, 'Seller not found.');
+  await User.setSellerStatus(req.params.id, null, null);
+  await logActivity('admin', 'seller_reset', `seller ${req.params.id}`);
+  return sendSuccess(res, 200, 'Application reset. Seller can now reapply.');
+};
+
 // POST /api/admin/sellers/:id/suspend
 exports.suspendSeller = async (req, res) => {
   await User.setShopDisabled(req.params.id, true);
@@ -82,6 +95,33 @@ exports.getSellerEarningsOverview = async (req, res) => {
 // ---------- Referral overview ----------
 
 // GET /api/admin/referrals
+// GET /api/admin/featured-requests - every "Feature My Product" request,
+// paid for via real IntaSend payment (see intasendController webhook),
+// awaiting a real admin decision.
+exports.getFeaturedRequests = async (req, res) => {
+  const requests = await FeaturedRequest.findAllForAdmin();
+  return sendSuccess(res, 200, 'Featured requests retrieved.', { requests });
+};
+
+// POST /api/admin/featured-requests/:id/approve - activates the feature
+// for real: the product only actually becomes featured here, never
+// automatically from payment alone.
+exports.approveFeaturedRequest = async (req, res) => {
+  const request = await FeaturedRequest.findById(req.params.id);
+  if (!request) return sendError(res, 404, 'Request not found.');
+  const until = new Date(Date.now() + request.days * 24 * 60 * 60 * 1000);
+  await pool.query('UPDATE products SET is_featured = 1, featured_until = ? WHERE id = ?', [until, request.product_id]);
+  await FeaturedRequest.updateStatus(request.id, 'approved');
+  return sendSuccess(res, 200, 'Product is now featured.', {});
+};
+
+exports.rejectFeaturedRequest = async (req, res) => {
+  const request = await FeaturedRequest.findById(req.params.id);
+  if (!request) return sendError(res, 404, 'Request not found.');
+  await FeaturedRequest.updateStatus(request.id, 'rejected');
+  return sendSuccess(res, 200, 'Request rejected.', {});
+};
+
 exports.getReferralOverview = async (req, res) => {
   const [rows] = await pool.query(`
     SELECT re.*, ur.name AS referrer_name, ur.email AS referrer_email

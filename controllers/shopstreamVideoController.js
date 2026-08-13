@@ -53,6 +53,22 @@ exports.deleteVideo = async (req, res) => {
   return sendSuccess(res, 200, 'Video deleted.', {});
 };
 
+// Lets a seller edit their own video's details, or publish a draft
+// (send { status: 'published' }) - the underlying video file itself
+// isn't replaceable here, just the metadata around it.
+exports.updateVideo = async (req, res) => {
+  const video = await ShopstreamVideo.findById(req.params.id);
+  if (!video) return sendError(res, 404, 'Video not found.');
+  if (video.seller_id !== req.user.id) return sendError(res, 403, 'Not your video.');
+  const { title, caption, category, hashtags, product_ids, status } = req.body;
+  await ShopstreamVideo.update(video.id, {
+    title, caption, category, hashtags,
+    product_ids: Array.isArray(product_ids) ? product_ids.join(',') : product_ids,
+    status: status === 'draft' || status === 'published' ? status : undefined
+  });
+  return sendSuccess(res, 200, 'Video updated.', {});
+};
+
 exports.likeVideo = async (req, res) => {
   const video = await ShopstreamVideo.findById(req.params.id);
   if (!video) return sendError(res, 404, 'Video not found.');

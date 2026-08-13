@@ -23,6 +23,7 @@ router.post('/:id/save', wrap(vc.saveVideo));
 router.post('/:id/comments', optionalAuth, wrap(vc.addComment));
 router.get('/:id/comments', wrap(vc.getComments));
 router.delete('/:id', protect, requireActiveSeller, wrap(vc.deleteVideo));
+router.put('/:id', protect, requireActiveSeller, wrap(vc.updateVideo));
 
 // Admin (mounted separately at /api/admin/shopstream/videos).
 const adminRouter = express.Router();

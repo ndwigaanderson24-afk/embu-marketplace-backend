@@ -79,6 +79,17 @@ const ShopstreamVideo = {
 
   async delete(id) {
     await pool.query('DELETE FROM shopstream_videos WHERE id = ?', [id]);
+  },
+
+  async update(id, data) {
+    const allowed = ['title', 'caption', 'category', 'hashtags', 'product_ids', 'status'];
+    const keys = Object.keys(data).filter(k => allowed.includes(k) && data[k] !== undefined);
+    if (!keys.length) return false;
+    const setClause = keys.map(k => `${k} = ?`).join(', ');
+    const values = keys.map(k => data[k]);
+    values.push(id);
+    await pool.query(`UPDATE shopstream_videos SET ${setClause} WHERE id = ?`, values);
+    return true;
   }
 };
 

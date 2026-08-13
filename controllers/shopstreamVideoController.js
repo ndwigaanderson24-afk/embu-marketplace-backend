@@ -1,0 +1,108 @@
+// controllers/shopstreamVideoController.js
+const { ShopstreamVideo, ShopstreamVideoComment } = require('../models/shopstreamVideo');
+const { sendSuccess, sendError } = require('../helpers');
+
+// Keeps the base64 payload realistic for a database column and Render's
+// request size limit - roughly a 12MB raw video once base64 overhead is
+// accounted for. Long-term this should move to real video hosting, but
+// this matches how photos are already stored across the rest of the app.
+const MAX_VIDEO_BASE64_CHARS = 16 * 1024 * 1024;
+
+exports.createVideo = async (req, res) => {
+  const { title, caption, category, hashtags, video_data, thumbnail, product_ids, status } = req.body;
+  if (!title || !video_data) return sendError(res, 400, 'Title and video are required.');
+  if (video_data.length > MAX_VIDEO_BASE64_CHARS) {
+    return sendError(res, 400, 'Video is too large. Please keep clips short (under ~20-30 seconds) or compress before uploading.');
+  }
+  const id = await ShopstreamVideo.create({
+    seller_id: req.user.id, title, caption, category, hashtags, video_data, thumbnail,
+    product_ids: Array.isArray(product_ids) ? product_ids.join(',') : product_ids,
+    status: status === 'draft' ? 'draft' : 'published'
+  });
+  return sendSuccess(res, 201, 'Video posted.', { id });
+};
+
+// Public buyer-facing feed - excludes the actual video bytes (too large
+// for a list), the client fetches each video's data separately when it
+// scrolls into view.
+exports.getPublishedVideos = async (req, res) => {
+  const videos = await ShopstreamVideo.findAllPublished();
+  return sendSuccess(res, 200, 'Videos retrieved.', { videos });
+};
+
+// Returns one video WITH its actual video data, and records a view.
+exports.getVideoById = async (req, res) => {
+  const video = await ShopstreamVideo.findById(req.params.id);
+  if (!video) return sendError(res, 404, 'Video not found.');
+  await ShopstreamVideo.incrementView(video.id);
+  return sendSuccess(res, 200, 'Video retrieved.', { video });
+};
+
+exports.getMyVideos = async (req, res) => {
+  const videos = await ShopstreamVideo.findBySeller(req.user.id);
+  return sendSuccess(res, 200, 'Videos retrieved.', { videos });
+};
+
+exports.deleteVideo = async (req, res) => {
+  const video = await ShopstreamVideo.findById(req.params.id);
+  if (!video) return sendError(res, 404, 'Video not found.');
+  if (video.seller_id !== req.user.id) return sendError(res, 403, 'Not your video.');
+  await ShopstreamVideo.delete(video.id);
+  return sendSuccess(res, 200, 'Video deleted.', {});
+};
+
+exports.likeVideo = async (req, res) => {
+  const video = await ShopstreamVideo.findById(req.params.id);
+  if (!video) return sendError(res, 404, 'Video not found.');
+  const likeCount = await ShopstreamVideo.incrementLike(video.id);
+  return sendSuccess(res, 200, 'Liked.', { like_count: likeCount });
+};
+
+exports.saveVideo = async (req, res) => {
+  const video = await ShopstreamVideo.findById(req.params.id);
+  if (!video) return sendError(res, 404, 'Video not found.');
+  const saveCount = await ShopstreamVideo.incrementSave(video.id);
+  return sendSuccess(res, 200, 'Saved.', { save_count: saveCount });
+};
+
+exports.addComment = async (req, res) => {
+  const video = await ShopstreamVideo.findById(req.params.id);
+  if (!video) return sendError(res, 404, 'Video not found.');
+  const comment = (req.body.comment || '').trim().slice(0, 300);
+  if (!comment) return sendError(res, 400, 'Comment cannot be empty.');
+  const senderName = (req.body.sender_name || (req.user ? req.user.name : 'Guest') || 'Guest').slice(0, 100);
+  const id = await ShopstreamVideoComment.create(video.id, senderName, comment);
+  return sendSuccess(res, 201, 'Comment added.', { id });
+};
+
+exports.getComments = async (req, res) => {
+  const comments = await ShopstreamVideoComment.findByVideoId(req.params.id);
+  return sendSuccess(res, 200, 'Comments retrieved.', { comments });
+};
+
+// ── Admin ────────────────────────────────────────────────────────────
+exports.adminGetAllVideos = async (req, res) => {
+  const videos = await ShopstreamVideo.findAllForAdmin();
+  return sendSuccess(res, 200, 'Videos retrieved.', { videos });
+};
+
+exports.adminCreateVideo = async (req, res) => {
+  const { title, caption, category, hashtags, video_data, thumbnail, product_ids, status } = req.body;
+  if (!title || !video_data) return sendError(res, 400, 'Title and video are required.');
+  if (video_data.length > MAX_VIDEO_BASE64_CHARS) {
+    return sendError(res, 400, 'Video is too large. Please keep clips short (under ~20-30 seconds) or compress before uploading.');
+  }
+  const id = await ShopstreamVideo.create({
+    seller_id: req.admin.id, title, caption, category, hashtags, video_data, thumbnail,
+    product_ids: Array.isArray(product_ids) ? product_ids.join(',') : product_ids,
+    status: status === 'draft' ? 'draft' : 'published'
+  });
+  return sendSuccess(res, 201, 'Video posted.', { id });
+};
+
+exports.adminDeleteVideo = async (req, res) => {
+  const video = await ShopstreamVideo.findById(req.params.id);
+  if (!video) return sendError(res, 404, 'Video not found.');
+  await ShopstreamVideo.delete(video.id);
+  return sendSuccess(res, 200, 'Video deleted.', {});
+};

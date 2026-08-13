@@ -22,6 +22,7 @@ const intasendRoutes = require('./routes/intasendRoutes');
 const productVariantRoutes = require('./routes/productVariantRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const shopstreamRoutes = require('./routes/shopstreamRoutes');
+const { videoRoutes, adminVideoRoutes } = require('./routes/shopstreamVideoRoutes');
 const { requestRoutes, adminRequestRoutes } = require('./routes/productRequestRoutes');
 
 const app = express();
@@ -78,6 +79,8 @@ app.use('/api/intasend', intasendRoutes);
 app.use('/api', productVariantRoutes);
 app.use('/api', categoryRoutes);
 app.use('/api/shopstream', shopstreamRoutes);
+app.use('/api/shopstream-videos', videoRoutes);
+app.use('/api/admin/shopstream-videos', adminVideoRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/admin/requests', adminRequestRoutes);
 

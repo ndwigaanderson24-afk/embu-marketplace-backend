@@ -3,10 +3,10 @@ const { ShopstreamVideo, ShopstreamVideoComment } = require('../models/shopstrea
 const { sendSuccess, sendError } = require('../helpers');
 
 // Keeps the base64 payload realistic for a database column and Render's
-// request size limit - roughly a 12MB raw video once base64 overhead is
-// accounted for. Long-term this should move to real video hosting, but
-// this matches how photos are already stored across the rest of the app.
-const MAX_VIDEO_BASE64_CHARS = 16 * 1024 * 1024;
+// request size limit - 25MB raw video becomes roughly 34MB once base64
+// encoded (~33% overhead), so this cap plus a little headroom matches
+// the frontend's 25MB file-size check and the raised server body limit.
+const MAX_VIDEO_BASE64_CHARS = 36 * 1024 * 1024;
 
 exports.createVideo = async (req, res) => {
   const { title, caption, category, hashtags, video_data, thumbnail, product_ids, status } = req.body;

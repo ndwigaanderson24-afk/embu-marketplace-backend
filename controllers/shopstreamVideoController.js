@@ -122,5 +122,11 @@ exports.getRawVideo = async (req, res) => {
   const buffer = Buffer.from(base64, 'base64');
   res.set('Content-Type', 'video/mp4');
   res.set('Cache-Control', 'public, max-age=86400');
+  // Every other piece of media in this app is embedded as a base64 data
+  // URI, which has no cross-origin restrictions at all - this is the
+  // first real cross-origin binary fetch (kenlynk.com loading video from
+  // the onrender.com API), and Chrome blocks that by default for <video
+  // src> unless the response explicitly opts in with this header.
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
   res.send(buffer);
 };

@@ -80,6 +80,68 @@ function addMonths(dateStr, months) {
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
+// ---------- All-inclusive pricing engine ----------
+// Turns a seller's asking price into the final, all-inclusive price the
+// buyer sees - margin, delivery allocation, and (if fragile) a risk
+// allocation are all baked in here, never shown as separate line items
+// anywhere downstream. This is the single source of truth: product
+// creation and order creation both call this, so the number can never
+// drift between what a buyer was shown and what actually gets charged.
+//
+// `rules` is the full active pricing_rules list (admin-configurable);
+// `settings` is the single pricing_settings row (defaults + fragile
+// surcharge). Both are passed in rather than fetched here, so this
+// stays a pure, easily-testable function.
+function pickPricingRule(sellerPrice, category, rules) {
+  const candidates = (rules || []).filter(r => {
+    if (!r.active) return false;
+    if (r.category && r.category !== category) return false;
+    if (sellerPrice < Number(r.min_value)) return false;
+    if (r.max_value !== null && r.max_value !== undefined && sellerPrice > Number(r.max_value)) return false;
+    return true;
+  });
+  if (!candidates.length) return null;
+  // A rule that names this exact category beats a wildcard (category:
+  // NULL) rule; among equally-specific matches, higher priority wins.
+  candidates.sort((a, b) => {
+    const aSpecific = a.category ? 1 : 0;
+    const bSpecific = b.category ? 1 : 0;
+    if (aSpecific !== bSpecific) return bSpecific - aSpecific;
+    return (b.priority || 0) - (a.priority || 0);
+  });
+  return candidates[0];
+}
+
+function applyAllocation(base, type, value) {
+  const amount = type === 'percent' ? base * (Number(value) / 100) : Number(value);
+  return Math.round(amount * 100) / 100;
+}
+
+// Returns { finalPrice, sellerPrice, margin, deliveryAllocation, riskAllocation, ruleUsed }.
+// sellerPrice, category, and fragile come from the product being priced.
+function computeFinalPrice(sellerPrice, { category, fragile } = {}, rules, settings) {
+  sellerPrice = Number(sellerPrice) || 0;
+  const rule = pickPricingRule(sellerPrice, category, rules);
+
+  const marginType = rule ? rule.margin_type : settings.default_margin_type;
+  const marginValue = rule ? rule.margin_value : settings.default_margin_value;
+  const deliveryType = rule ? rule.delivery_type : settings.default_delivery_type;
+  const deliveryValue = rule ? rule.delivery_value : settings.default_delivery_value;
+
+  const margin = applyAllocation(sellerPrice, marginType, marginValue);
+  const deliveryAllocation = applyAllocation(sellerPrice, deliveryType, deliveryValue);
+  const riskAllocation = fragile
+    ? applyAllocation(sellerPrice, settings.fragile_risk_type, settings.fragile_risk_value)
+    : 0;
+
+  const finalPrice = Math.round((sellerPrice + margin + deliveryAllocation + riskAllocation) * 100) / 100;
+
+  return {
+    finalPrice, sellerPrice, margin, deliveryAllocation, riskAllocation,
+    ruleUsed: rule ? rule.name : 'default'
+  };
+}
+
 module.exports = {
   sendSuccess, sendError, signToken,
   generateReferralCode, generateTrackingNumber, generateOrderNumber,
@@ -87,5 +149,6 @@ module.exports = {
   PLATFORM_DEFAULT_COUNTY,
   SUBSCRIPTION_PLANS, getSubscriptionPrice, getSubscriptionMonths,
   REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL,
-  addMonths, todayStr
+  addMonths, todayStr,
+  computeFinalPrice, pickPricingRule
 };

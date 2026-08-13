@@ -7,6 +7,8 @@ const { sendSuccess, sendError } = require('../helpers');
 const Product = require('../models/product');
 const FeaturedRequest = require('../models/featuredRequest');
 const FeaturedLiveRequest = require('../models/featuredLiveRequest');
+const PricingRule = require('../models/pricingRule');
+const PricingSettings = require('../models/pricingSettings');
 
 async function logActivity(actor, action, details) {
   try { await pool.query('INSERT INTO activity_logs (actor, action, details) VALUES (?,?,?)', [actor, action, details || null]); }
@@ -147,6 +149,52 @@ exports.rejectFeaturedLiveRequest = async (req, res) => {
   if (!request) return sendError(res, 404, 'Request not found.');
   await FeaturedLiveRequest.updateStatus(request.id, 'rejected');
   return sendSuccess(res, 200, 'Request rejected.', {});
+};
+
+// ---------- Pricing engine admin controls ----------
+
+// GET /api/admin/pricing/settings - the single global-defaults row.
+exports.getPricingSettings = async (req, res) => {
+  const settings = await PricingSettings.get();
+  return sendSuccess(res, 200, 'Pricing settings retrieved.', { settings });
+};
+
+// PUT /api/admin/pricing/settings
+exports.updatePricingSettings = async (req, res) => {
+  await PricingSettings.update(req.body);
+  const settings = await PricingSettings.get();
+  return sendSuccess(res, 200, 'Pricing settings updated.', { settings });
+};
+
+// GET /api/admin/pricing/rules - every rule, for the admin's own
+// management view (findAllActive, used by product pricing itself,
+// only returns active ones).
+exports.getPricingRules = async (req, res) => {
+  const rules = await PricingRule.findAllForAdmin();
+  return sendSuccess(res, 200, 'Pricing rules retrieved.', { rules });
+};
+
+exports.createPricingRule = async (req, res) => {
+  const { name, margin_type, margin_value, delivery_type, delivery_value } = req.body;
+  if (!name || !margin_type || margin_value === undefined || !delivery_type || delivery_value === undefined) {
+    return sendError(res, 400, 'name, margin_type, margin_value, delivery_type, and delivery_value are required.');
+  }
+  const id = await PricingRule.create(req.body);
+  return sendSuccess(res, 201, 'Pricing rule created.', { id });
+};
+
+exports.updatePricingRule = async (req, res) => {
+  const rule = await PricingRule.findById(req.params.id);
+  if (!rule) return sendError(res, 404, 'Rule not found.');
+  await PricingRule.update(req.params.id, req.body);
+  return sendSuccess(res, 200, 'Pricing rule updated.', {});
+};
+
+exports.deletePricingRule = async (req, res) => {
+  const rule = await PricingRule.findById(req.params.id);
+  if (!rule) return sendError(res, 404, 'Rule not found.');
+  await PricingRule.delete(req.params.id);
+  return sendSuccess(res, 200, 'Pricing rule deleted.', {});
 };
 
 exports.getReferralOverview = async (req, res) => {

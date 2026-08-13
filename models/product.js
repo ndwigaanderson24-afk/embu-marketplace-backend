@@ -1,37 +1,37 @@
 // models/product.js
 
 const pool = require('../db');
+const PricingRule = require('./pricingRule');
+const PricingSettings = require('./pricingSettings');
+const { computeFinalPrice } = require('../helpers');
+
+// Shared by create/update - fetches the current active rules + global
+// settings and runs the actual calculation. Kept in one place so
+// product creation and product editing can never compute the price
+// two different ways.
+async function priceProduct(sellerPrice, { category, fragile }) {
+  const [rules, settings] = await Promise.all([
+    PricingRule.findAllActive(),
+    PricingSettings.get()
+  ]);
+  return computeFinalPrice(sellerPrice, { category, fragile }, rules, settings);
+}
 
 const Product = {
   async create(sellerId, data) {
-    // images_json holds the full gallery (array of image URLs/data-URIs);
-    // `image` keeps mirroring the first one so every existing feature
-    // that only ever reads `.image` (cards, cart, orders, admin lists)
-    // keeps working unchanged.
-    const images = Array.isArray(data.images) ? data.images.filter(Boolean) : null;
-    const primaryImage = (images && images.length) ? images[0] : (data.image || null);
-    const imagesJson = (images && images.length) ? JSON.stringify(images) : null;
-
-    // wholesale_tiers_json holds an array of {min, max, price} quantity
-    // tiers - buyer-facing pricing display already exists in the
-    // frontend and just reads this straight off the product.
-    const wholesaleTiersJson = (Array.isArray(data.wholesale_tiers) && data.wholesale_tiers.length)
-      ? JSON.stringify(data.wholesale_tiers) : null;
+    const priced = await priceProduct(data.seller_price, { category: data.category, fragile: !!data.fragile });
 
     const [result] = await pool.query(
       `INSERT INTO products
-        (seller_id, name, description, category, category_id, price, original_price, emoji, image, images_json, wholesale_tiers_json, video,
-         weight, fragile, stock, county, hot, is_new_arrival, is_best_rated, made_in_kenya, country_of_origin, flash_deal_ends_at, status, low_stock_threshold, has_variants)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null, data.price,
-       data.original_price || null, data.emoji || null, primaryImage, imagesJson, wholesaleTiersJson, data.video || null,
-       data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot, !!data.is_new_arrival, !!data.is_best_rated,
-       // made_in_kenya is derived from country_of_origin when a country was
-       // picked, so there's only ever one real setting - not two that
-       // could contradict each other (e.g. Country=China, Made in Kenya=Yes).
-       data.country_of_origin ? (data.country_of_origin === 'Kenya') : !!data.made_in_kenya,
-       data.country_of_origin || null, data.flash_deal_ends_at || null,
-       data.status || 'active', data.low_stock_threshold || null, !!data.has_variants]
+        (seller_id, name, description, category, price, seller_price, price_margin,
+         price_delivery_allocation, price_risk_allocation, original_price, emoji, image, video,
+         weight, fragile, stock, county, hot, status, low_stock_threshold)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [sellerId || null, data.name, data.description || null, data.category || null,
+       priced.finalPrice, priced.sellerPrice, priced.margin, priced.deliveryAllocation, priced.riskAllocation,
+       data.original_price || null, data.emoji || null, data.image || null, data.video || null,
+       data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot,
+       data.status || 'active', data.low_stock_threshold || null]
     );
     return result.insertId;
   },
@@ -53,13 +53,7 @@ const Product = {
   // shop is actually active (approved + subscribed + not disabled), or
   // platform/demo products (seller_id IS NULL), matching the website's
   // getFilteredProducts() behaviour.
-  //
-  // category_ids (preferred): filter by the real category tree - pass a
-  // category plus all of its descendant ids (see Category.getDescendantIds)
-  // so filtering by a parent category also returns products filed under
-  // its subcategories. category (legacy): still supported as a plain
-  // string match for anything not yet migrated to category_id.
-  async findPublic({ category, category_ids, search, limit = 50, offset = 0 } = {}) {
+  async findPublic({ category, search, limit = 50, offset = 0 } = {}) {
     let sql = `
       SELECT p.*, u.email AS seller_email, u.business_name AS seller_business_name
       FROM products p
@@ -73,12 +67,7 @@ const Product = {
         ))
       )`;
     const params = [];
-    if (category_ids && category_ids.length) {
-      sql += ` AND p.category_id IN (${category_ids.map(() => '?').join(',')})`;
-      params.push(...category_ids);
-    } else if (category) {
-      sql += ' AND p.category = ?'; params.push(category);
-    }
+    if (category) { sql += ' AND p.category = ?'; params.push(category); }
     if (search) { sql += ' AND p.name LIKE ?'; params.push(`%${search}%`); }
     sql += ' ORDER BY p.created_at DESC LIMIT ? OFFSET ?';
     params.push(Number(limit), Number(offset));
@@ -86,22 +75,39 @@ const Product = {
     return rows;
   },
 
+  // Re-runs the pricing calculation whenever seller_price, category, or
+  // fragile status changes - those are the only inputs that affect the
+  // final price, so a plain stock/description edit skips this entirely.
+  // price/price_margin/price_delivery_allocation/price_risk_allocation
+  // are stripped from the incoming data unconditionally first - a
+  // client can NEVER set the buyer-facing price directly, only ever
+  // through this calculation.
+  async _repriceIfNeeded(id, data, currentRow) {
+    const { price, price_margin, price_delivery_allocation, price_risk_allocation, ...clean } = data;
+    const touchesPricing = clean.seller_price !== undefined || clean.category !== undefined || clean.fragile !== undefined;
+    if (!touchesPricing) return clean;
+    const sellerPrice = clean.seller_price !== undefined ? clean.seller_price : currentRow.seller_price;
+    const category = clean.category !== undefined ? clean.category : currentRow.category;
+    const fragile = clean.fragile !== undefined ? !!clean.fragile : !!currentRow.fragile;
+    const priced = await priceProduct(sellerPrice, { category, fragile });
+    return {
+      ...clean,
+      seller_price: priced.sellerPrice,
+      price: priced.finalPrice,
+      price_margin: priced.margin,
+      price_delivery_allocation: priced.deliveryAllocation,
+      price_risk_allocation: priced.riskAllocation
+    };
+  },
+
   async update(id, sellerId, data) {
-    // If a new gallery was submitted, derive image/images_json from it
-    // the same way create() does, rather than expecting the caller to
-    // pass images_json pre-built.
-    if (Array.isArray(data.images)) {
-      const images = data.images.filter(Boolean);
-      data = { ...data, image: images.length ? images[0] : data.image, images_json: images.length ? JSON.stringify(images) : null };
-    }
-    if (Array.isArray(data.wholesale_tiers)) {
-      data = { ...data, wholesale_tiers_json: data.wholesale_tiers.length ? JSON.stringify(data.wholesale_tiers) : null };
-    }
-    if (data.country_of_origin !== undefined) {
-      data = { ...data, made_in_kenya: data.country_of_origin === 'Kenya' };
-    }
-    const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'images_json', 'wholesale_tiers_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'is_new_arrival', 'is_best_rated', 'made_in_kenya', 'country_of_origin', 'flash_deal_ends_at', 'status', 'low_stock_threshold', 'has_variants'];
+    const current = await this.findById(id);
+    if (!current || current.seller_id !== sellerId) return false;
+    data = await this._repriceIfNeeded(id, data, current);
+
+    const allowed = ['name', 'description', 'category', 'price', 'seller_price', 'price_margin',
+      'price_delivery_allocation', 'price_risk_allocation', 'original_price', 'emoji',
+      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');
@@ -115,18 +121,13 @@ const Product = {
   // no seller) owns it - used for platform products added directly by
   // an admin, since those have no seller to match against.
   async updateAsAdmin(id, data) {
-    if (Array.isArray(data.images)) {
-      const images = data.images.filter(Boolean);
-      data = { ...data, image: images.length ? images[0] : data.image, images_json: images.length ? JSON.stringify(images) : null };
-    }
-    if (Array.isArray(data.wholesale_tiers)) {
-      data = { ...data, wholesale_tiers_json: data.wholesale_tiers.length ? JSON.stringify(data.wholesale_tiers) : null };
-    }
-    if (data.country_of_origin !== undefined) {
-      data = { ...data, made_in_kenya: data.country_of_origin === 'Kenya' };
-    }
-    const allowed = ['name', 'description', 'category', 'category_id', 'price', 'original_price', 'emoji',
-      'image', 'images_json', 'wholesale_tiers_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'is_new_arrival', 'is_best_rated', 'made_in_kenya', 'country_of_origin', 'flash_deal_ends_at', 'status', 'low_stock_threshold', 'has_variants'];
+    const current = await this.findById(id);
+    if (!current) return false;
+    data = await this._repriceIfNeeded(id, data, current);
+
+    const allowed = ['name', 'description', 'category', 'price', 'seller_price', 'price_margin',
+      'price_delivery_allocation', 'price_risk_allocation', 'original_price', 'emoji',
+      'image', 'video', 'weight', 'fragile', 'stock', 'hot', 'status', 'low_stock_threshold'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

@@ -28,6 +28,13 @@ router.post('/featured-requests/:id/reject', wrap(admin.rejectFeaturedRequest));
 router.get('/featured-live-requests', wrap(admin.getFeaturedLiveRequests));
 router.post('/featured-live-requests/:id/approve', wrap(admin.approveFeaturedLiveRequest));
 router.post('/featured-live-requests/:id/reject', wrap(admin.rejectFeaturedLiveRequest));
+
+router.get('/pricing/settings', wrap(admin.getPricingSettings));
+router.put('/pricing/settings', wrap(admin.updatePricingSettings));
+router.get('/pricing/rules', wrap(admin.getPricingRules));
+router.post('/pricing/rules', wrap(admin.createPricingRule));
+router.put('/pricing/rules/:id', wrap(admin.updatePricingRule));
+router.delete('/pricing/rules/:id', wrap(admin.deletePricingRule));
 router.get('/analytics', wrap(admin.getAnalytics));
 
 router.post('/announcements', wrap(admin.sendAnnouncement));

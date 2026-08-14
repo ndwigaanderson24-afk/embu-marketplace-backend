@@ -24,10 +24,17 @@ function variantClause(variantId) {
 }
 
 const Cart = {
-  // Returns each cart line joined to its product, with price/stock
-  // overridden by the selected variant's own price/stock when one is
-  // attached - price/stock are never trusted from the client, only ever
-  // read fresh from the products/product_variants tables here.
+  // Returns each cart line joined to its product, with price/stock AND
+  // the full pricing breakdown (seller_price, margin, delivery/risk
+  // allocation) overridden by the selected variant's own values when one
+  // is attached - price/stock are never trusted from the client, only
+  // ever read fresh from the products/product_variants tables here.
+  //
+  // This is what makes checkout correctly pay the seller the variant's
+  // own seller_price when one was selected, instead of falling back to
+  // the base product's - previously only price/stock were coalesced,
+  // which is why the order total and seller earnings could disagree
+  // with what the buyer actually picked.
   async getItems(owner) {
     const { clause, value } = ownerClause(owner);
     const [rows] = await pool.query(
@@ -35,6 +42,10 @@ const Cart = {
               p.*,
               COALESCE(v.price, p.price) AS price,
               COALESCE(v.stock, p.stock) AS stock,
+              COALESCE(v.seller_price, p.seller_price) AS seller_price,
+              COALESCE(v.price_margin, p.price_margin) AS price_margin,
+              COALESCE(v.price_delivery_allocation, p.price_delivery_allocation) AS price_delivery_allocation,
+              COALESCE(v.price_risk_allocation, p.price_risk_allocation) AS price_risk_allocation,
               v.sku AS variant_sku,
               v.images_json AS variant_images_json
        FROM cart_items c

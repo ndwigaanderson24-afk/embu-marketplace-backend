@@ -5,8 +5,32 @@
 //   product_variant_options     – the values for each combination
 
 const pool = require('../db');
+const Product = require('./product');
+const PricingRule = require('./pricingRule');
+const PricingSettings = require('./pricingSettings');
+const { computeFinalPrice } = require('../helpers');
+
+// A variant has no category/fragile of its own - it belongs to a parent
+// product that does, so pricing a variant means fetching that parent's
+// category/fragile and running the exact same calculation used for the
+// product itself. This is what makes selecting a colour/size now show a
+// real, calculated price instead of whatever raw number was typed in.
+async function priceVariant(sellerPrice, productId) {
+  const [product, rules, settings] = await Promise.all([
+    Product.findById(productId),
+    PricingRule.findAllActive(),
+    PricingSettings.get()
+  ]);
+  return computeFinalPrice(sellerPrice, { category: product?.category, fragile: !!product?.fragile }, rules, settings);
+}
 
 const ProductVariant = {
+
+  // Exposed for a live "buyer will pay" preview while adding/editing a
+  // variant, same pattern as Product.previewPrice.
+  async previewPrice(sellerPrice, productId) {
+    return priceVariant(sellerPrice, productId);
+  },
 
   // ── Attributes (dimension names for one product) ────────────────────
 
@@ -47,13 +71,14 @@ const ProductVariant = {
    * replaces its option values entirely.
    *
    * @param {number}   productId
-   * @param {object}   variantData  { id?, sku?, price, original_price?,
+   * @param {object}   variantData  { id?, sku?, seller_price, original_price?,
    *                                  stock, images_json?, is_active?,
    *                                  options: [{attribute_id, value}] }
    * @returns {number} variant id
    */
   async upsertVariant(productId, variantData) {
-    const { id, sku, price, original_price, stock, images_json, is_active = 1, options = [] } = variantData;
+    const { id, sku, seller_price, original_price, stock, images_json, is_active = 1, options = [] } = variantData;
+    const priced = await priceVariant(seller_price, productId);
 
     const conn = await pool.getConnection();
     try {
@@ -64,21 +89,22 @@ const ProductVariant = {
         // Update existing variant
         await conn.query(
           `UPDATE product_variants
-           SET sku = ?, price = ?, original_price = ?, stock = ?,
-               images_json = ?, is_active = ?
+           SET sku = ?, price = ?, seller_price = ?, price_margin = ?, price_delivery_allocation = ?,
+               price_risk_allocation = ?, original_price = ?, stock = ?, images_json = ?, is_active = ?
            WHERE id = ? AND product_id = ?`,
-          [sku || null, price, original_price || null, stock,
-           images_json || null, is_active ? 1 : 0, id, productId]
+          [sku || null, priced.finalPrice, priced.sellerPrice, priced.margin, priced.deliveryAllocation,
+           priced.riskAllocation, original_price || null, stock, images_json || null, is_active ? 1 : 0, id, productId]
         );
         variantId = id;
       } else {
         // Insert new variant
         const [result] = await conn.query(
           `INSERT INTO product_variants
-             (product_id, sku, price, original_price, stock, images_json, is_active)
-           VALUES (?,?,?,?,?,?,?)`,
-          [productId, sku || null, price, original_price || null, stock,
-           images_json || null, is_active ? 1 : 0]
+             (product_id, sku, price, seller_price, price_margin, price_delivery_allocation,
+              price_risk_allocation, original_price, stock, images_json, is_active)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          [productId, sku || null, priced.finalPrice, priced.sellerPrice, priced.margin, priced.deliveryAllocation,
+           priced.riskAllocation, original_price || null, stock, images_json || null, is_active ? 1 : 0]
         );
         variantId = result.insertId;
       }

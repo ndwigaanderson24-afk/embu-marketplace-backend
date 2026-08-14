@@ -17,6 +17,8 @@ router.get('/products/:id/variants', wrap(vc.getVariants));
 // ── Seller ──────────────────────────────────────────────────────────────
 // Define attribute dimensions (Colour, Size, RAM …)
 router.put('/products/:id/attributes', protect, requireActiveSeller, wrap(vc.setAttributes));
+// Live "buyer will pay" preview before saving a variant
+router.post('/products/:id/variants/preview-price', protect, requireActiveSeller, wrap(vc.previewVariantPrice));
 // Add / update / delete individual variants
 router.post  ('/products/:id/variants',            protect, requireActiveSeller, wrap(vc.addVariant));
 router.put   ('/products/:id/variants/:vid',       protect, requireActiveSeller, wrap(vc.updateVariant));

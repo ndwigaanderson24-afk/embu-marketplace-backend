@@ -100,13 +100,36 @@ const Order = {
              commission, margin_total, risk_allocation_total, seller_earnings, referral_code, pickup_date)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [orderNumber, trackingNumber, group.sellerId, customer.userId || null, customer.name, customer.phone,
-           customer.idNumber, customer.address || null, delivery.pickupDate ? 'Booked' : 'Pending',
+           customer.idNumber, customer.address || null, 'Pending Payment',
            delivery.type, delivery.type === 'delivery' ? delivery.address : null,
            group.county, delivery.destCounty, delivery.destArea || null, group.weight, group.deliveryAllocationTotal,
            group.subtotal, total, commission, group.marginTotal, group.riskAllocationTotal, sellerEarnings,
            delivery.referralCode || null, delivery.pickupDate || null]
         );
         const orderId = result.insertId;
+
+        // Starts the audit trail from the very beginning - from_status
+        // NULL specifically marks "this is when the order was created",
+        // distinct from a real transition between two statuses.
+        await conn.query(
+          'INSERT INTO order_status_history (order_id, from_status, to_status, changed_by_type, notes) VALUES (?,?,?,?,?)',
+          [orderId, null, 'Pending Payment', 'system', 'Order created at checkout']
+        );
+
+        // createFromCart is still only called AFTER payment has already
+        // been confirmed (this function runs from the payment webhook) -
+        // so the order moves straight to Paid here. Once order creation
+        // moves to checkout time instead (a separate, larger change),
+        // this immediate transition goes away and Paid only happens when
+        // the webhook actually confirms payment on an existing order.
+        await conn.query(
+          `UPDATE orders SET status = 'Paid', paid_at = NOW() WHERE id = ?`,
+          [orderId]
+        );
+        await conn.query(
+          'INSERT INTO order_status_history (order_id, from_status, to_status, changed_by_type, notes) VALUES (?,?,?,?,?)',
+          [orderId, 'Pending Payment', 'Paid', 'system', 'Payment confirmed via M-Pesa']
+        );
 
         for (const item of group.items) {
           // variant_id/variant_name/variant_sku restore which exact
@@ -262,20 +285,32 @@ const Order = {
     return rows[0].count;
   },
 
-  // The 6-stage lifecycle: Pending -> Accepted -> Packed -> In Transit ->
-  // Delivered -> Completed. Sellers are only paid once Completed (see
-  // Order.sumPayableEarnings).
-  async updateStatus(id, status) {
-    const valid = ['Booked', 'Pending', 'Accepted', 'Packed', 'In Transit', 'Delivered', 'Completed', 'Cancelled'];
-    if (!valid.includes(status)) throw new Error(`Invalid status: ${status}`);
-    await pool.query('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
+  // Every status change goes through OrderStatus.transition(), which
+  // validates the move is legal for this actor and records it in
+  // order_status_history - this function is kept as a thin, actor-aware
+  // wrapper so existing callers only need to add who's making the change.
+  async updateStatus(id, status, actor = { actorType: 'admin' }) {
+    const OrderStatus = require('./orderStatus');
+    return OrderStatus.transition(id, status, actor);
   },
 
-  async assignRider(id, { name, phone, photo }) {
+  // Assigning a rider means the order is now actually moving - this maps
+  // to the "Out for Delivery" transition rather than setting status
+  // directly, so it goes through the same validation/history as every
+  // other status change (only legal from "Ready for Delivery").
+  async assignRider(id, { name, phone, photo }, actor = { actorType: 'admin' }) {
     await pool.query(
-      `UPDATE orders SET rider_name = ?, rider_phone = ?, rider_photo = ?, rider_assigned_at = NOW(), status = 'Accepted' WHERE id = ?`,
+      `UPDATE orders SET rider_name = ?, rider_phone = ?, rider_photo = ?, rider_assigned_at = NOW() WHERE id = ?`,
       [name, phone, photo || null, id]
     );
+    const OrderStatus = require('./orderStatus');
+    try {
+      await OrderStatus.transition(id, 'Out for Delivery', { ...actor, notes: `Rider assigned: ${name}` });
+    } catch (err) {
+      // Rider info is still saved even if the order wasn't in a state
+      // that allows moving to "Out for Delivery" yet (e.g. already
+      // further along) - don't let that block assigning the rider.
+    }
   },
 
   // Delivery rating is intentionally independent of whether a rider was

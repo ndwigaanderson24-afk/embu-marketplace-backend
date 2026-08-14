@@ -18,10 +18,10 @@ const Order = {
   //
   // subtotal is what the buyer pays (product.price is already
   // all-inclusive). sellerSubtotal is what sellers are actually owed
-  // (product.seller_price) - the gap between the two is exactly
-  // KenLynk's margin + delivery allocation + risk allocation combined,
-  // already baked into each product's displayed price, never charged
-  // as a separate line item.
+  // (product.seller_price, or the variant's own seller_price when one is
+  // selected) - the gap between the two is exactly KenLynk's margin +
+  // delivery allocation + risk allocation combined, already baked into
+  // each item's displayed price, never charged as a separate line item.
   groupCartBySeller(cartItems) {
     const groups = {};
     cartItems.forEach(item => {
@@ -69,9 +69,11 @@ const Order = {
     return { totalLogisticsFee, totalWeight: useOverride ? weightOverride : autoTotalWeight, groups: planGroups };
   },
 
-  // Creates one order row per seller group, decrements stock, and awards
-  // referral commission per sub-order. Runs in a single transaction so a
-  // partial multi-seller checkout can never be left half-written.
+  // Creates one order row per seller group, decrements stock (of the
+  // specific variant when one was selected, otherwise the base product),
+  // and awards referral commission per sub-order. Runs in a single
+  // transaction so a partial multi-seller checkout can never be left
+  // half-written.
   async createFromCart(cartItems, customer, delivery) {
     const conn = await pool.getConnection();
     try {
@@ -107,11 +109,25 @@ const Order = {
         const orderId = result.insertId;
 
         for (const item of group.items) {
+          // variant_id/variant_name/variant_sku restore which exact
+          // option (colour, size, etc) was ordered - this was dropped in
+          // an earlier revision of this file and is fixed here.
           await conn.query(
-            'INSERT INTO order_items (order_id, product_id, product_name, qty, price, seller_price) VALUES (?,?,?,?,?,?)',
-            [orderId, item.id, item.name, item.qty, item.price, item.seller_price != null ? item.seller_price : item.price]
+            `INSERT INTO order_items
+              (order_id, product_id, product_name, qty, price, seller_price, variant_id, variant_name, variant_sku)
+             VALUES (?,?,?,?,?,?,?,?,?)`,
+            [orderId, item.id, item.name, item.qty, item.price,
+             item.seller_price != null ? item.seller_price : item.price,
+             item.variant_id || null, item.variant_name || null, item.variant_sku || null]
           );
-          await conn.query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.id]);
+          // Decrement the specific variant's stock when one was ordered,
+          // otherwise the base product's stock - matches how cart.js
+          // already reads stock (COALESCE(v.stock, p.stock)).
+          if (item.variant_id) {
+            await conn.query('UPDATE product_variants SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.variant_id]);
+          } else {
+            await conn.query('UPDATE products SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.qty, item.id]);
+          }
         }
 
         // Referral commission, evaluated per sub-order (matches the website:
@@ -130,7 +146,7 @@ const Order = {
         createdOrders.push({
           id: orderId, order_number: orderNumber, tracking_number: trackingNumber,
           seller_id: group.sellerId, total,
-          itemsSummary: group.items.map(i => `${i.name} x${i.qty}`).join(', '),
+          itemsSummary: group.items.map(i => `${i.name}${i.variant_name ? ' (' + i.variant_name + ')' : ''} x${i.qty}`).join(', '),
           deliveryType: delivery.type, destCounty: delivery.destCounty, destArea: delivery.destArea
         });
       }

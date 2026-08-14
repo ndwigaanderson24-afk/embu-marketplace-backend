@@ -21,10 +21,11 @@ const PricingRule = {
     const [result] = await pool.query(
       `INSERT INTO pricing_rules
         (name, category, min_value, max_value, margin_type, margin_value,
-         delivery_type, delivery_value, priority, active)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+         delivery_type, delivery_value, category_commission_rate, priority, active)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [data.name, data.category || null, data.min_value || 0, data.max_value ?? null,
        data.margin_type, data.margin_value, data.delivery_type, data.delivery_value,
+       data.category_commission_rate ?? null,
        data.priority || 0, data.active === undefined ? 1 : !!data.active]
     );
     return result.insertId;
@@ -32,7 +33,7 @@ const PricingRule = {
 
   async update(id, data) {
     const allowed = ['name', 'category', 'min_value', 'max_value', 'margin_type',
-      'margin_value', 'delivery_type', 'delivery_value', 'priority', 'active'];
+      'margin_value', 'delivery_type', 'delivery_value', 'category_commission_rate', 'priority', 'active'];
     const keys = Object.keys(data).filter(k => allowed.includes(k) && data[k] !== undefined);
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

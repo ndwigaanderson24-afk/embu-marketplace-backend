@@ -42,9 +42,41 @@ const Product = {
       try {
         const priced = await priceProduct(row.price, { category: row.category, fragile: !!row.fragile });
         await pool.query(
-          `UPDATE products SET seller_price = ?, price = ?, price_margin = ?,
+          `UPDATE products SET seller_price = ?, price = ?, price_margin = ?, price_category_commission = ?,
            price_delivery_allocation = ?, price_risk_allocation = ? WHERE id = ?`,
-          [priced.sellerPrice, priced.finalPrice, priced.margin, priced.deliveryAllocation, priced.riskAllocation, row.id]
+          [priced.sellerPrice, priced.finalPrice, priced.margin, priced.categoryCommission,
+           priced.deliveryAllocation, priced.riskAllocation, row.id]
+        );
+        migrated++;
+      } catch (err) {
+        errors.push({ productId: row.id, error: err.message });
+      }
+    }
+    return { totalFound: rows.length, migrated, errors };
+  },
+
+  // One-time backfill for the new per-category commission: unlike
+  // migrateExistingPricing() above (which only touches products that
+  // never went through the pricing engine at all, seller_price IS
+  // NULL), this re-runs pricing for products that ALREADY have a
+  // seller_price - so their price_category_commission column, and
+  // therefore their final buyer-facing price, picks up the newly added
+  // commission term. seller_price itself never changes here, only the
+  // computed price/breakdown on top of it. Safe to run more than once -
+  // it's just a recalculation using whatever pricing_rules/settings are
+  // active at the time it's run.
+  async backfillCategoryCommission() {
+    const [rows] = await pool.query('SELECT id, seller_price, category, fragile FROM products WHERE seller_price IS NOT NULL');
+    let migrated = 0;
+    const errors = [];
+    for (const row of rows) {
+      try {
+        const priced = await priceProduct(row.seller_price, { category: row.category, fragile: !!row.fragile });
+        await pool.query(
+          `UPDATE products SET price = ?, price_margin = ?, price_category_commission = ?,
+           price_delivery_allocation = ?, price_risk_allocation = ? WHERE id = ?`,
+          [priced.finalPrice, priced.margin, priced.categoryCommission,
+           priced.deliveryAllocation, priced.riskAllocation, row.id]
         );
         migrated++;
       } catch (err) {
@@ -87,12 +119,13 @@ const Product = {
     const [result] = await pool.query(
       `INSERT INTO products
         (seller_id, name, description, category, category_id, brand, price, seller_price, price_margin,
-         price_delivery_allocation, price_risk_allocation, original_price, emoji, image, images_json, video,
+         price_category_commission, price_delivery_allocation, price_risk_allocation, original_price, emoji, image, images_json, video,
          weight, fragile, stock, county, hot, is_new_arrival, is_best_rated, country_of_origin, made_in_kenya,
          flash_deal_ends_at, wholesale_tiers_json, has_variants, status, low_stock_threshold)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null,
-       data.brand || null, priced.finalPrice, priced.sellerPrice, priced.margin, priced.deliveryAllocation, priced.riskAllocation,
+       data.brand || null, priced.finalPrice, priced.sellerPrice, priced.margin,
+       priced.categoryCommission, priced.deliveryAllocation, priced.riskAllocation,
        data.original_price || null, data.emoji || null, data.image || null, data.images_json || null, data.video || null,
        data.weight || 1, !!data.fragile, data.stock || 0, data.county || null, !!data.hot,
        !!data.is_new_arrival, !!data.is_best_rated, data.country_of_origin || null, !!data.made_in_kenya,
@@ -149,7 +182,7 @@ const Product = {
   // client can NEVER set the buyer-facing price directly, only ever
   // through this calculation.
   async _repriceIfNeeded(id, data, currentRow) {
-    const { price, price_margin, price_delivery_allocation, price_risk_allocation, ...clean } = data;
+    const { price, price_margin, price_category_commission, price_delivery_allocation, price_risk_allocation, ...clean } = data;
     const touchesPricing = clean.seller_price !== undefined || clean.category !== undefined || clean.fragile !== undefined;
     if (!touchesPricing) return clean;
     const sellerPrice = clean.seller_price !== undefined ? clean.seller_price : currentRow.seller_price;
@@ -161,6 +194,7 @@ const Product = {
       seller_price: priced.sellerPrice,
       price: priced.finalPrice,
       price_margin: priced.margin,
+      price_category_commission: priced.categoryCommission,
       price_delivery_allocation: priced.deliveryAllocation,
       price_risk_allocation: priced.riskAllocation
     };
@@ -173,7 +207,7 @@ const Product = {
     data = await this._repriceIfNeeded(id, data, current);
 
     const allowed = ['name', 'description', 'category', 'category_id', 'brand', 'price', 'seller_price', 'price_margin',
-      'price_delivery_allocation', 'price_risk_allocation', 'original_price', 'emoji',
+      'price_category_commission', 'price_delivery_allocation', 'price_risk_allocation', 'original_price', 'emoji',
       'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'is_new_arrival', 'is_best_rated',
       'country_of_origin', 'made_in_kenya', 'flash_deal_ends_at', 'wholesale_tiers_json', 'has_variants',
       'status', 'low_stock_threshold'];
@@ -196,7 +230,7 @@ const Product = {
     data = await this._repriceIfNeeded(id, data, current);
 
     const allowed = ['name', 'description', 'category', 'category_id', 'brand', 'price', 'seller_price', 'price_margin',
-      'price_delivery_allocation', 'price_risk_allocation', 'original_price', 'emoji',
+      'price_category_commission', 'price_delivery_allocation', 'price_risk_allocation', 'original_price', 'emoji',
       'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'is_new_arrival', 'is_best_rated',
       'country_of_origin', 'made_in_kenya', 'flash_deal_ends_at', 'wholesale_tiers_json', 'has_variants',
       'status', 'low_stock_threshold'];

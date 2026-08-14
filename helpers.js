@@ -117,8 +117,17 @@ function applyAllocation(base, type, value) {
   return Math.round(amount * 100) / 100;
 }
 
-// Returns { finalPrice, sellerPrice, margin, deliveryAllocation, riskAllocation, ruleUsed }.
+// Returns { finalPrice, sellerPrice, categoryCommission, margin, deliveryAllocation, riskAllocation, ruleUsed }.
 // sellerPrice, category, and fragile come from the product being priced.
+//
+// categoryCommission is KenLynk's genuinely separate per-category cut -
+// distinct from margin/delivery/risk, which fund the all-inclusive
+// pricing model itself. It's always a percentage of sellerPrice (never
+// of the subtotal, never a flat amount), taken from the matched rule's
+// category_commission_rate, or settings.default_category_commission_rate
+// when no rule specifies one (rule.category_commission_rate is nullable
+// specifically so existing rules can omit it and just inherit the
+// global default, rather than needing every rule backfilled at once).
 function computeFinalPrice(sellerPrice, { category, fragile } = {}, rules, settings) {
   sellerPrice = Number(sellerPrice) || 0;
   const rule = pickPricingRule(sellerPrice, category, rules);
@@ -127,17 +136,21 @@ function computeFinalPrice(sellerPrice, { category, fragile } = {}, rules, setti
   const marginValue = rule ? rule.margin_value : settings.default_margin_value;
   const deliveryType = rule ? rule.delivery_type : settings.default_delivery_type;
   const deliveryValue = rule ? rule.delivery_value : settings.default_delivery_value;
+  const categoryCommissionRate = (rule && rule.category_commission_rate !== null && rule.category_commission_rate !== undefined)
+    ? rule.category_commission_rate
+    : settings.default_category_commission_rate;
 
   const margin = applyAllocation(sellerPrice, marginType, marginValue);
   const deliveryAllocation = applyAllocation(sellerPrice, deliveryType, deliveryValue);
   const riskAllocation = fragile
     ? applyAllocation(sellerPrice, settings.fragile_risk_type, settings.fragile_risk_value)
     : 0;
+  const categoryCommission = applyAllocation(sellerPrice, 'percent', categoryCommissionRate);
 
-  const finalPrice = Math.round((sellerPrice + margin + deliveryAllocation + riskAllocation) * 100) / 100;
+  const finalPrice = Math.round((sellerPrice + categoryCommission + margin + deliveryAllocation + riskAllocation) * 100) / 100;
 
   return {
-    finalPrice, sellerPrice, margin, deliveryAllocation, riskAllocation,
+    finalPrice, sellerPrice, categoryCommission, margin, deliveryAllocation, riskAllocation,
     ruleUsed: rule ? rule.name : 'default'
   };
 }

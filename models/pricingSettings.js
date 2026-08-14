@@ -9,7 +9,7 @@ const PricingSettings = {
 
   async update(data) {
     const allowed = ['default_margin_type', 'default_margin_value', 'default_delivery_type',
-      'default_delivery_value', 'fragile_risk_type', 'fragile_risk_value'];
+      'default_delivery_value', 'fragile_risk_type', 'fragile_risk_value', 'default_category_commission_rate'];
     const keys = Object.keys(data).filter(k => allowed.includes(k) && data[k] !== undefined);
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');

@@ -209,6 +209,18 @@ exports.migrateExistingProductPricing = async (req, res) => {
   return sendSuccess(res, 200, `Migrated ${result.migrated} of ${result.totalFound} products.`, result);
 };
 
+// POST /api/admin/pricing/backfill-category-commission - one-time
+// action for products that already have a seller_price (created before
+// the per-category commission existed). Recalculates price/breakdown
+// using current pricing_rules/settings so the new commission term gets
+// folded in. Safe to run more than once. Distinct from
+// migrateExistingPricing above, which only handles legacy products that
+// never had seller_price set at all.
+exports.backfillCategoryCommission = async (req, res) => {
+  const result = await Product.backfillCategoryCommission();
+  return sendSuccess(res, 200, `Recalculated pricing for ${result.migrated} of ${result.totalFound} products.`, result);
+};
+
 // POST /api/admin/pricing/clear-variant-pricing - one-time cleanup.
 // Per-variant pricing was removed entirely (every variant now always
 // uses its parent product's price) - this clears out any price that

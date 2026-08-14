@@ -31,6 +31,21 @@ function stripBreakdownForSeller(product) {
 }
 
 // POST /api/products  (protected, requireActiveSeller, multipart/form-data field "images")
+// POST /api/products/preview-price  (protected, seller or admin)
+// Lets a seller see what a buyer will actually pay before they publish
+// - runs the exact same calculation product creation uses, just without
+// saving anything. Returns only seller_price (echoed back) and the
+// final price - not the margin/delivery/risk split, which stays
+// admin-only even in this preview.
+exports.previewPrice = async (req, res) => {
+  const { seller_price, category, fragile } = req.body;
+  if (seller_price === undefined || Number(seller_price) <= 0) {
+    return sendError(res, 400, 'seller_price must be greater than 0.');
+  }
+  const priced = await Product.previewPrice(seller_price, { category, fragile: !!fragile });
+  return sendSuccess(res, 200, 'Price calculated.', { seller_price: priced.sellerPrice, price: priced.finalPrice });
+};
+
 exports.create = async (req, res) => {
   const { name, seller_price } = req.body;
   if (!name || seller_price === undefined) return sendError(res, 400, 'name and seller_price are required.');

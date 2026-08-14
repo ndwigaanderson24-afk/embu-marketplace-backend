@@ -18,6 +18,7 @@ router.get('/', wrap(product.getPublicList));
 
 // Seller (must come before "/:id" so "/mine" isn't swallowed by the param route)
 router.get('/mine', protect, requireActiveSeller, wrap(product.getMine));
+router.post('/preview-price', protect, requireActiveSeller, wrap(product.previewPrice));
 router.post('/', protect, requireActiveSeller, productImageUpload.array('images', 8), wrap(product.create));
 router.put('/:id', protect, requireActiveSeller, productImageUpload.array('images', 8), wrap(product.update));
 router.delete('/:id', protect, requireActiveSeller, wrap(product.remove));
@@ -27,6 +28,7 @@ router.post('/:id/reviews', optionalAuth, wrap(product.addReview));
 
 // Admin
 router.post('/admin', protect, requireAdmin, wrap(product.adminCreate));
+router.post('/admin/preview-price', protect, requireAdmin, wrap(product.previewPrice));
 router.get('/admin/all', protect, requireAdmin, wrap(product.adminGetAll));
 router.put('/admin/:id', protect, requireAdmin, wrap(product.adminUpdate));
 router.put('/admin/:id/hide', protect, requireAdmin, wrap(product.adminHide));

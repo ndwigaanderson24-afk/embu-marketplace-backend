@@ -5,6 +5,7 @@ const User = require('../models/user');
 const Notification = require('../models/notification');
 const { sendSuccess, sendError } = require('../helpers');
 const Product = require('../models/product');
+const ProductVariant = require('../models/productVariant');
 const FeaturedRequest = require('../models/featuredRequest');
 const FeaturedLiveRequest = require('../models/featuredLiveRequest');
 const PricingRule = require('../models/pricingRule');
@@ -206,6 +207,16 @@ exports.deletePricingRule = async (req, res) => {
 exports.migrateExistingProductPricing = async (req, res) => {
   const result = await Product.migrateExistingPricing();
   return sendSuccess(res, 200, `Migrated ${result.migrated} of ${result.totalFound} products.`, result);
+};
+
+// POST /api/admin/pricing/clear-variant-pricing - one-time cleanup.
+// Per-variant pricing was removed entirely (every variant now always
+// uses its parent product's price) - this clears out any price that
+// was already set on existing variants before that change, so nothing
+// left over overrides the product's price. Safe to run more than once.
+exports.clearVariantPricing = async (req, res) => {
+  const result = await ProductVariant.clearVariantPricing();
+  return sendSuccess(res, 200, `Cleared pricing on ${result.cleared} variant(s).`, result);
 };
 
 // GET /api/admin/notifications - the real broadcast feed every admin

@@ -196,20 +196,29 @@ exports.initiateCheckoutPayment = async (req, res) => {
   const amount = Math.round(plan.groups.reduce((sum, g) => sum + g.subtotal, 0));
   if (!amount || amount <= 0) return sendError(res, 400, 'Could not calculate a valid order total.');
 
+  // The order is created NOW, in Pending Payment, before payment is even
+  // attempted - not after it's confirmed. This means stock is reserved
+  // immediately (preventing overselling during the payment window), and
+  // the order genuinely exists and is trackable even if the customer's
+  // payment never completes. A stale-order cleanup (see
+  // Order.releaseStalePendingOrders, run periodically in server.js)
+  // cancels and releases stock for anything left unpaid too long.
+  const customer = {
+    userId: req.user ? req.user.id : null, name, phone, idNumber: id_number, address
+  };
+  const deliveryInfo = {
+    type: delivery.type, destCounty: delivery.dest_county, destArea: delivery.dest_area,
+    address: delivery.address, weightOverride: delivery.weight_override,
+    referralCode: delivery.referral_code, pickupDate: pickup_date
+  };
+  const createdOrders = await Order.createFromCart(cartItems, customer, deliveryInfo);
+  await Cart.clear(owner);
+
   const apiRef = `ORD-${owner.userId || 'guest'}-${uuidv4().slice(0, 8)}`;
 
   const payload = {
     owner,
-    name, phone, id_number, address,
-    delivery: {
-      type: delivery.type,
-      dest_county: delivery.dest_county,
-      dest_area: delivery.dest_area,
-      address: delivery.address,
-      weight_override: delivery.weight_override,
-      referral_code: delivery.referral_code
-    },
-    pickup_date: pickup_date || null
+    order_ids: createdOrders.map(o => o.id)
   };
 
   await IntasendPayment.create({
@@ -229,9 +238,17 @@ exports.initiateCheckoutPayment = async (req, res) => {
     return sendSuccess(res, 200, 'Payment prompt sent to your phone. Enter your M-Pesa PIN to complete.', {
       api_ref: apiRef,
       amount,
+      order_ids: createdOrders.map(o => o.id),
       invoice_id: invoiceId
     });
   } catch (err) {
+    // The order was already created and stock reserved, but the STK
+    // push itself never reached the customer's phone - there is no way
+    // this payment can ever complete, so release the reservation now
+    // rather than waiting for the stale-order cleanup to catch it later.
+    for (const created of createdOrders) {
+      try { await Order.cancelUnpaidOrder(created.id, 'STK push failed to send'); } catch (e) {}
+    }
     await IntasendPayment.updateStatus(apiRef, 'FAILED', err.message);
     return sendError(res, 502, err.message || 'Could not reach IntaSend. Please try again.');
   }
@@ -261,6 +278,19 @@ exports.webhook = async (req, res) => {
 
     if (state === 'FAILED') {
       await IntasendPayment.updateStatus(api_ref, 'FAILED', failed_reason);
+      // IntaSend has definitively confirmed this payment failed - cancel
+      // whatever orders were created for it right away and release their
+      // reserved stock, rather than waiting for the stale-order cleanup.
+      if (payment.purpose === 'order' && payment.payload_json) {
+        try {
+          const payload = JSON.parse(payment.payload_json);
+          for (const orderId of (payload.order_ids || [])) {
+            await Order.cancelUnpaidOrder(orderId, `Payment failed: ${failed_reason || 'unknown reason'}`);
+          }
+        } catch (cancelErr) {
+          console.error('Could not cancel orders after failed payment:', cancelErr.message);
+        }
+      }
       return res.status(200).json({ received: true });
     }
 
@@ -294,33 +324,23 @@ exports.webhook = async (req, res) => {
       if (payment.purpose === 'order' && payment.payload_json) {
         try {
           const payload = JSON.parse(payment.payload_json);
-          const owner = payload.owner;
-
-          const cartItems = await Cart.getItems(owner);
-          if (cartItems.length) {
-            const createdOrders = await Order.createFromCart(cartItems, {
-              userId: owner.userId || null, name: payload.name, phone: payload.phone,
-              idNumber: payload.id_number, address: payload.address
-            }, {
-              type: payload.delivery.type,
-              destCounty: payload.delivery.dest_county,
-              destArea: payload.delivery.dest_area,
-              address: payload.delivery.address,
-              weightOverride: payload.delivery.weight_override,
-              referralCode: payload.delivery.referral_code,
-              pickupDate: payload.pickup_date
-            });
-            await Cart.clear(owner);
-            await IntasendPayment.setResult(api_ref, JSON.stringify({ orders: createdOrders }));
-          } else {
-            // Cart was emptied some other way between payment and now
-            // (shouldn't normally happen) - record that so support can
-            // investigate and refund if needed, rather than silently
-            // taking payment with no order.
-            await IntasendPayment.setResult(api_ref, JSON.stringify({ error: 'Cart was empty when payment was confirmed - no order created.' }));
+          const orderIds = payload.order_ids || [];
+          const results = [];
+          for (const orderId of orderIds) {
+            try {
+              const result = await Order.updateStatus(orderId, 'Paid', { actorType: 'system', notes: 'Payment confirmed via M-Pesa' });
+              results.push({ orderId, ...result });
+            } catch (transitionErr) {
+              // Most likely this order was already cancelled by the
+              // stale-order cleanup before payment came through - log it
+              // rather than silently losing a confirmed payment.
+              console.error(`Could not move order ${orderId} to Paid:`, transitionErr.message);
+              results.push({ orderId, error: transitionErr.message });
+            }
           }
+          await IntasendPayment.setResult(api_ref, JSON.stringify({ orders: results }));
         } catch (orderErr) {
-          console.error('Failed to create order after confirmed payment:', orderErr.message);
+          console.error('Failed to confirm payment on existing orders:', orderErr.message);
           await IntasendPayment.setResult(api_ref, JSON.stringify({ error: orderErr.message }));
         }
       }

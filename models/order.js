@@ -110,25 +110,14 @@ const Order = {
 
         // Starts the audit trail from the very beginning - from_status
         // NULL specifically marks "this is when the order was created",
-        // distinct from a real transition between two statuses.
+        // distinct from a real transition between two statuses. Orders
+        // now genuinely stay in Pending Payment from here - createFromCart
+        // is called at checkout initiation (before payment), and only the
+        // payment webhook (via OrderStatus.transition) moves an order to
+        // Paid once M-Pesa actually confirms.
         await conn.query(
           'INSERT INTO order_status_history (order_id, from_status, to_status, changed_by_type, notes) VALUES (?,?,?,?,?)',
           [orderId, null, 'Pending Payment', 'system', 'Order created at checkout']
-        );
-
-        // createFromCart is still only called AFTER payment has already
-        // been confirmed (this function runs from the payment webhook) -
-        // so the order moves straight to Paid here. Once order creation
-        // moves to checkout time instead (a separate, larger change),
-        // this immediate transition goes away and Paid only happens when
-        // the webhook actually confirms payment on an existing order.
-        await conn.query(
-          `UPDATE orders SET status = 'Paid', paid_at = NOW() WHERE id = ?`,
-          [orderId]
-        );
-        await conn.query(
-          'INSERT INTO order_status_history (order_id, from_status, to_status, changed_by_type, notes) VALUES (?,?,?,?,?)',
-          [orderId, 'Pending Payment', 'Paid', 'system', 'Payment confirmed via M-Pesa']
         );
 
         for (const item of group.items) {
@@ -324,6 +313,52 @@ const Order = {
   },
 
   // Only Completed orders count toward a seller's payable balance.
+  // Cancels a Pending Payment order and releases whatever stock it had
+  // reserved back to the product/variant - used when a payment fails
+  // outright, or when a Pending Payment order has sat unpaid too long
+  // (see releaseStalePendingOrders below). Only ever touches orders
+  // still in Pending Payment - once paid, cancelling goes through the
+  // normal seller/admin transition instead, which does NOT restock
+  // automatically (a paid, cancelled order needs a human decision about
+  // whether stock should return).
+  async cancelUnpaidOrder(orderId, notes = 'Payment failed or was never completed') {
+    const OrderStatus = require('./orderStatus');
+    const order = await this.findById(orderId);
+    if (!order || order.status !== 'Pending Payment') return null;
+
+    for (const item of order.items) {
+      if (item.variant_id) {
+        await pool.query('UPDATE product_variants SET stock = stock + ? WHERE id = ?', [item.qty, item.variant_id]);
+      } else {
+        await pool.query('UPDATE products SET stock = stock + ? WHERE id = ?', [item.qty, item.product_id]);
+      }
+    }
+
+    return OrderStatus.transition(orderId, 'Cancelled', { actorType: 'system', notes });
+  },
+
+  // Safety net for abandoned checkouts - an order sitting in Pending
+  // Payment for longer than maxAgeMinutes almost certainly means the
+  // customer closed the tab or the STK push was never completed. Called
+  // periodically (see server.js) rather than relying only on IntaSend's
+  // webhook, since a webhook can be missed or never arrive.
+  async releaseStalePendingOrders(maxAgeMinutes = 30) {
+    const [rows] = await pool.query(
+      `SELECT id FROM orders WHERE status = 'Pending Payment' AND placed_at < NOW() - INTERVAL ? MINUTE`,
+      [maxAgeMinutes]
+    );
+    let released = 0;
+    for (const row of rows) {
+      try {
+        await this.cancelUnpaidOrder(row.id, `Auto-cancelled - unpaid for over ${maxAgeMinutes} minutes`);
+        released++;
+      } catch (err) {
+        console.error(`Could not auto-cancel stale order ${row.id}:`, err.message);
+      }
+    }
+    return { checked: rows.length, released };
+  },
+
   async sumPayableEarnings(sellerId) {
     const [rows] = await pool.query(
       `SELECT COALESCE(SUM(seller_earnings), 0) AS total FROM orders WHERE seller_id = ? AND status = 'Completed'`,

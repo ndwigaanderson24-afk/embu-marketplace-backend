@@ -3,33 +3,27 @@
 //   product_variant_attributes  – the dimension names (Colour, Size, RAM …)
 //   product_variants            – each purchasable combination
 //   product_variant_options     – the values for each combination
+//
+// Variants deliberately have no price of their own - see upsertVariant
+// below for why. Every variant always uses its parent product's price.
 
 const pool = require('../db');
-const Product = require('./product');
-const PricingRule = require('./pricingRule');
-const PricingSettings = require('./pricingSettings');
-const { computeFinalPrice } = require('../helpers');
-
-// A variant has no category/fragile of its own - it belongs to a parent
-// product that does, so pricing a variant means fetching that parent's
-// category/fragile and running the exact same calculation used for the
-// product itself. This is what makes selecting a colour/size now show a
-// real, calculated price instead of whatever raw number was typed in.
-async function priceVariant(sellerPrice, productId) {
-  const [product, rules, settings] = await Promise.all([
-    Product.findById(productId),
-    PricingRule.findAllActive(),
-    PricingSettings.get()
-  ]);
-  return computeFinalPrice(sellerPrice, { category: product?.category, fragile: !!product?.fragile }, rules, settings);
-}
 
 const ProductVariant = {
 
-  // Exposed for a live "buyer will pay" preview while adding/editing a
-  // variant, same pattern as Product.previewPrice.
-  async previewPrice(sellerPrice, productId) {
-    return priceVariant(sellerPrice, productId);
+  // One-time cleanup for variants that already had a price set before
+  // per-variant pricing was removed - clears every price-related column
+  // so cart.js's COALESCE(v.price, p.price) correctly falls through to
+  // the parent product's price for all of them. Safe to run more than
+  // once; a variant with nothing left to clear is just skipped.
+  async clearVariantPricing() {
+    const [result] = await pool.query(
+      `UPDATE product_variants
+       SET price = NULL, seller_price = NULL, price_margin = NULL,
+           price_delivery_allocation = NULL, price_risk_allocation = NULL, original_price = NULL
+       WHERE price IS NOT NULL OR seller_price IS NOT NULL`
+    );
+    return { cleared: result.affectedRows };
   },
 
   // ── Attributes (dimension names for one product) ────────────────────
@@ -70,15 +64,22 @@ const ProductVariant = {
    * upsertVariant — creates or updates a single variant row, then
    * replaces its option values entirely.
    *
+   * Variants deliberately have NO price of their own - a colour/size
+   * always uses the parent product's price. Having both a product price
+   * and a per-variant price was confusing sellers about which one to
+   * fill in, so this was removed entirely rather than made optional -
+   * every price/seller_price/etc column is explicitly cleared to NULL
+   * on every save, so cart.js's COALESCE(v.price, p.price) always falls
+   * through to the product's price, with nothing left over from before
+   * this change.
+   *
    * @param {number}   productId
-   * @param {object}   variantData  { id?, sku?, seller_price, original_price?,
-   *                                  stock, images_json?, is_active?,
-   *                                  options: [{attribute_id, value}] }
+   * @param {object}   variantData  { id?, sku?, stock, images_json?,
+   *                                  is_active?, options: [{attribute_id, value}] }
    * @returns {number} variant id
    */
   async upsertVariant(productId, variantData) {
-    const { id, sku, seller_price, original_price, stock, images_json, is_active = 1, options = [] } = variantData;
-    const priced = await priceVariant(seller_price, productId);
+    const { id, sku, stock, images_json, is_active = 1, options = [] } = variantData;
 
     const conn = await pool.getConnection();
     try {
@@ -89,22 +90,20 @@ const ProductVariant = {
         // Update existing variant
         await conn.query(
           `UPDATE product_variants
-           SET sku = ?, price = ?, seller_price = ?, price_margin = ?, price_delivery_allocation = ?,
-               price_risk_allocation = ?, original_price = ?, stock = ?, images_json = ?, is_active = ?
+           SET sku = ?, price = NULL, seller_price = NULL, price_margin = NULL,
+               price_delivery_allocation = NULL, price_risk_allocation = NULL, original_price = NULL,
+               stock = ?, images_json = ?, is_active = ?
            WHERE id = ? AND product_id = ?`,
-          [sku || null, priced.finalPrice, priced.sellerPrice, priced.margin, priced.deliveryAllocation,
-           priced.riskAllocation, original_price || null, stock, images_json || null, is_active ? 1 : 0, id, productId]
+          [sku || null, stock, images_json || null, is_active ? 1 : 0, id, productId]
         );
         variantId = id;
       } else {
-        // Insert new variant
+        // Insert new variant - price columns stay NULL, matching an
+        // update to an existing one.
         const [result] = await conn.query(
-          `INSERT INTO product_variants
-             (product_id, sku, price, seller_price, price_margin, price_delivery_allocation,
-              price_risk_allocation, original_price, stock, images_json, is_active)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-          [productId, sku || null, priced.finalPrice, priced.sellerPrice, priced.margin, priced.deliveryAllocation,
-           priced.riskAllocation, original_price || null, stock, images_json || null, is_active ? 1 : 0]
+          `INSERT INTO product_variants (product_id, sku, stock, images_json, is_active)
+           VALUES (?,?,?,?,?)`,
+          [productId, sku || null, stock, images_json || null, is_active ? 1 : 0]
         );
         variantId = result.insertId;
       }

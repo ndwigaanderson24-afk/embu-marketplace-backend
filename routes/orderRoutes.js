@@ -130,11 +130,19 @@ router.get('/:id', protect, wrap(async (req, res) => {
 
 // Canonical 6-stage lifecycle: Pending -> Accepted -> Packed -> In Transit
 // -> Delivered -> Completed. A seller is only paid once Completed.
+// ---------- Seller: move an order through its own legal stages ----------
 router.put('/:id/status', protect, requireActiveSeller, wrap(async (req, res) => {
-  const { status } = req.body;
+  const { status, notes } = req.body;
   const order = await Order.findById(req.params.id);
   if (!order || order.seller_id !== req.user.id) return sendError(res, 404, 'Order not found.');
-  await Order.updateStatus(req.params.id, status);
+
+  let result;
+  try {
+    result = await Order.updateStatus(req.params.id, status, { actorType: 'seller', actorId: req.user.id, notes });
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+  if (!result.changed) return sendSuccess(res, 200, `Order is already ${status}.`, result);
 
   if (order.customer_user_id) {
     const Notification = require('../models/notification');
@@ -147,7 +155,45 @@ router.put('/:id/status', protect, requireActiveSeller, wrap(async (req, res) =>
   const { logActivity } = require('../controllers/adminController');
   await logActivity(String(req.user.id), 'order_status_updated', `order ${req.params.id} -> ${status}`);
 
-  return sendSuccess(res, 200, `Order status updated to ${status}.`);
+  return sendSuccess(res, 200, `Order status updated to ${status}.`, result);
+}));
+
+// ---------- Customer: confirm they've received a Delivered order ----------
+// The only way an order can ever reach Completed - enforced by the state
+// machine itself (Completed is only reachable from Delivered, and only a
+// customer or admin can make that specific move), not just this route.
+router.put('/:id/confirm-receipt', protect, wrap(async (req, res) => {
+  const order = await Order.findById(req.params.id);
+  if (!order || order.customer_user_id !== req.user.id) return sendError(res, 404, 'Order not found.');
+
+  let result;
+  try {
+    result = await Order.updateStatus(req.params.id, 'Completed', { actorType: 'customer', actorId: req.user.id, notes: 'Customer confirmed receipt' });
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+
+  if (order.seller_id) {
+    const Notification = require('../models/notification');
+    await Notification.create(order.seller_id, {
+      title: `Order #${order.order_number} completed`,
+      message: `${order.customer_name} confirmed they received their order.`,
+      type: 'order_status'
+    });
+  }
+
+  return sendSuccess(res, 200, 'Thanks for confirming! Order marked as completed.', result);
+}));
+
+// ---------- Status history - for any of the order's own legitimate viewers ----------
+router.get('/:id/history', protect, wrap(async (req, res) => {
+  const order = await Order.findById(req.params.id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+  const isOwner = (order.seller_id === req.user.id) || (order.customer_user_id === req.user.id);
+  if (!isOwner && !req.isAdmin) return sendError(res, 403, 'You do not have access to this order.');
+  const OrderStatus = require('../models/orderStatus');
+  const history = await OrderStatus.getHistory(req.params.id);
+  return sendSuccess(res, 200, 'History retrieved.', { history });
 }));
 
 // ---------- Rider assignment (admin) ----------
@@ -158,7 +204,7 @@ router.post('/:id/rider', protect, requireAdmin, wrap(async (req, res) => {
   if (!name || !phone) return sendError(res, 400, 'Rider name and phone are required.');
   const order = await Order.findById(req.params.id);
   if (!order) return sendError(res, 404, 'Order not found.');
-  await Order.assignRider(req.params.id, { name, phone, photo });
+  await Order.assignRider(req.params.id, { name, phone, photo }, { actorType: 'admin', actorId: req.user.id });
   const { logActivity } = require('../controllers/adminController');
   await logActivity('admin', 'rider_assigned', `order ${req.params.id}: ${name}`);
   return sendSuccess(res, 200, `Rider ${name} assigned - linked to ${order.customer_name}'s delivery.`);
@@ -202,13 +248,34 @@ router.get('/admin/new-count', protect, requireAdmin, wrap(async (req, res) => {
 }));
 
 // Admin can update ANY order's status (no seller-ownership check, unlike
-// the seller-facing PUT /:id/status above).
+// the seller-facing PUT /:id/status above) - now goes through the same
+// state machine, and notifies the customer too (previously only a
+// seller-made change would notify - admin changes never did).
 router.put('/admin/:id/status', protect, requireAdmin, wrap(async (req, res) => {
-  const { status } = req.body;
+  const { status, notes } = req.body;
   const order = await Order.findById(req.params.id);
   if (!order) return sendError(res, 404, 'Order not found.');
-  await Order.updateStatus(req.params.id, status);
-  return sendSuccess(res, 200, `Order status updated to ${status}.`);
+
+  let result;
+  try {
+    result = await Order.updateStatus(req.params.id, status, { actorType: 'admin', actorId: req.user.id, notes });
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+  if (!result.changed) return sendSuccess(res, 200, `Order is already ${status}.`, result);
+
+  if (order.customer_user_id) {
+    const Notification = require('../models/notification');
+    await Notification.create(order.customer_user_id, {
+      title: `Order #${order.order_number} update`,
+      message: `Your order status is now: ${status}.`,
+      type: 'order_status'
+    });
+  }
+  const { logActivity } = require('../controllers/adminController');
+  await logActivity('admin', 'order_status_updated', `order ${req.params.id} -> ${status}`);
+
+  return sendSuccess(res, 200, `Order status updated to ${status}.`, result);
 }));
 
 module.exports = router;

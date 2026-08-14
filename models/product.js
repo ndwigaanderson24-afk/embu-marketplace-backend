@@ -122,7 +122,7 @@ const Product = {
          price_category_commission, price_delivery_allocation, price_risk_allocation, original_price, emoji, image, images_json, video,
          weight, fragile, stock, county, hot, is_new_arrival, is_best_rated, country_of_origin, made_in_kenya,
          flash_deal_ends_at, wholesale_tiers_json, has_variants, status, low_stock_threshold)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null,
        data.brand || null, priced.finalPrice, priced.sellerPrice, priced.margin,
        priced.categoryCommission, priced.deliveryAllocation, priced.riskAllocation,

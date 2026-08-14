@@ -8,6 +8,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const http = require('http');
 
 const pool = require('./db');
 
@@ -97,12 +98,41 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
+// A plain http server wrapping the Express app - needed so the
+// WebSocket server (real-time order status updates) can attach to the
+// exact same connection/port Express is already using, rather than
+// needing a second port Render would have to expose separately.
+const httpServer = http.createServer(app);
+
 (async () => {
   await pool.testConnection();
-  app.listen(PORT, () => {
+
+  httpServer.listen(PORT, () => {
     console.log(`🚀 Embu Marketplace API running on http://localhost:${PORT}`);
     console.log(`   Health check: http://localhost:${PORT}/api/health`);
   });
+
+  const websocket = require('./utils/websocket');
+  websocket.init(httpServer);
+
+  // Safety net for abandoned checkouts: an order sitting in "Pending
+  // Payment" for more than 30 minutes almost certainly means the
+  // customer closed the tab or the M-Pesa prompt was never completed -
+  // this releases the stock it was reserving and marks it Cancelled.
+  // Runs every 5 minutes. Relying on this instead of ONLY the IntaSend
+  // webhook matters because a webhook can occasionally be missed or
+  // never arrive at all.
+  const Order = require('./models/order');
+  setInterval(async () => {
+    try {
+      const result = await Order.releaseStalePendingOrders(30);
+      if (result.released > 0) {
+        console.log(`🧹 Released ${result.released} stale pending order(s).`);
+      }
+    } catch (err) {
+      console.error('Stale order cleanup failed:', err.message);
+    }
+  }, 5 * 60 * 1000);
 })();
 
 module.exports = app;

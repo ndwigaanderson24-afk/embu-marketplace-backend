@@ -105,6 +105,19 @@ const OrderStatus = {
       [orderId, fromStatus, toStatus, actorType, actorId, notes]
     );
 
+    // Live update, best-effort - a WebSocket hiccup should never break
+    // the actual status change, which is why this is wrapped separately
+    // and never thrown from.
+    try {
+      const [orderRows] = await pool.query('SELECT id, order_number, customer_user_id, seller_id FROM orders WHERE id = ?', [orderId]);
+      if (orderRows[0]) {
+        const { broadcastOrderUpdate } = require('../utils/websocket');
+        broadcastOrderUpdate(orderRows[0], { fromStatus, toStatus });
+      }
+    } catch (wsErr) {
+      console.error('WebSocket broadcast failed (non-fatal):', wsErr.message);
+    }
+
     return { fromStatus, toStatus, changed: true };
   },
 

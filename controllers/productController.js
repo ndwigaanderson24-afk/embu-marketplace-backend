@@ -4,6 +4,7 @@ const Product = require('../models/product');
 const Review = require('../models/review');
 const Order = require('../models/order');
 const { sendSuccess, sendError } = require('../helpers');
+const { uploadBufferToCloudinary } = require('../cloudinaryUpload');
 
 // The pricing breakdown (seller_price, price_margin,
 // price_delivery_allocation, price_risk_allocation) must never reach a
@@ -53,7 +54,12 @@ exports.create = async (req, res) => {
 
   // County always comes from the seller's own account, never the request
   // body - this is what makes delivery-fee calculation trustworthy.
-  const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : (req.body.image || null);
+  // Product photos now go straight to Cloudinary instead of Render's own
+  // disk - req.files[0].buffer holds the file in memory (see upload.js),
+  // and the URL Cloudinary hands back is what gets saved as the image.
+  const image = req.files && req.files.length
+    ? await uploadBufferToCloudinary(req.files[0].buffer, 'kenlynk/products')
+    : (req.body.image || null);
   const productId = await Product.create(req.user.id, { ...req.body, county: req.user.county, image });
   const product = await Product.findById(productId);
   return sendSuccess(res, 201, 'Product added.', { product: stripBreakdownForSeller(product) });
@@ -67,7 +73,9 @@ exports.getMine = async (req, res) => {
 
 // PUT /api/products/:id  (protected, multipart/form-data field "images" optional)
 exports.update = async (req, res) => {
-  const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : undefined;
+  const image = req.files && req.files.length
+    ? await uploadBufferToCloudinary(req.files[0].buffer, 'kenlynk/products')
+    : undefined;
   const updated = await Product.update(req.params.id, req.user.id, { ...req.body, ...(image ? { image } : {}) });
   if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
   const product = await Product.findById(req.params.id);

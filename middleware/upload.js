@@ -2,24 +2,19 @@
 // Two configured multer instances: seller verification documents
 // (PDF/JPG/PNG) and product images (JPG/PNG). Caps size at MAX_UPLOAD_MB
 // (default 5MB), matching the website's own upload limits.
+//
+// Uses memoryStorage rather than the old diskStorage - files are no
+// longer saved onto Render's own disk at all. Instead req.files[x].buffer
+// holds the raw file in memory just long enough for the controller to
+// hand it to Cloudinary (see cloudinaryUpload.js), which is what
+// actually stores and serves it from here on. This is what stops every
+// product photo view from eating into Render's bandwidth quota.
 
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB) || 5;
 
-function makeStorage(subfolder) {
-  const dir = path.join(__dirname, '..', 'uploads', subfolder);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return multer.diskStorage({
-    destination: (req, file, cb) => cb(null, dir),
-    filename: (req, file, cb) => {
-      const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-      cb(null, `${unique}${path.extname(file.originalname)}`);
-    }
-  });
-}
+const storage = multer.memoryStorage();
 
 function fileFilter(allowedTypes) {
   return (req, file, cb) => {
@@ -31,13 +26,13 @@ function fileFilter(allowedTypes) {
 }
 
 const documentUpload = multer({
-  storage: makeStorage('documents'),
+  storage,
   limits: { fileSize: MAX_MB * 1024 * 1024 },
   fileFilter: fileFilter(['image/jpeg', 'image/png', 'application/pdf'])
 });
 
 const productImageUpload = multer({
-  storage: makeStorage('products'),
+  storage,
   limits: { fileSize: MAX_MB * 1024 * 1024 },
   fileFilter: fileFilter(['image/jpeg', 'image/png'])
 });

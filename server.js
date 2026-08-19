@@ -25,6 +25,8 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const shopstreamRoutes = require('./routes/shopstreamRoutes');
 const { videoRoutes, adminVideoRoutes } = require('./routes/shopstreamVideoRoutes');
 const { requestRoutes, adminRequestRoutes } = require('./routes/productRequestRoutes');
+const sellerRoutes = require('./routes/sellerRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 const app = express();
 
@@ -84,6 +86,8 @@ app.use('/api/shopstream-videos', videoRoutes);
 app.use('/api/admin/shopstream-videos', adminVideoRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/admin/requests', adminRequestRoutes);
+app.use('/api/sellers', sellerRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // 404
 app.use((req, res) => res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.originalUrl}` }));

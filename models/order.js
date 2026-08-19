@@ -6,10 +6,30 @@
 const pool = require('../db');
 const Notification = require('./notification');
 const AdminNotification = require('./adminNotification');
+const { sendAdminOrderSms } = require('../smsService');
 const {
   generateOrderNumber, generateTrackingNumber, calculateDeliveryFee,
   PLATFORM_DEFAULT_COUNTY, REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL
 } = require('../helpers');
+
+// Mirrors window.getUnitPriceForQty() in index.html exactly, so the cart
+// page's displayed wholesale price and what checkout actually charges
+// can never disagree. Was previously only applied on the frontend for
+// display - the buyer saw a bulk discount in their cart, but got charged
+// the regular per-unit price when the order was placed. tiers come from
+// products.wholesale_tiers_json, joined onto each cart item already.
+function getUnitPriceForQty(item) {
+  const base = Number(item.price) || 0;
+  let tiers = [];
+  try { tiers = item.wholesale_tiers_json ? JSON.parse(item.wholesale_tiers_json) : []; } catch (e) { tiers = []; }
+  if (!Array.isArray(tiers) || !tiers.length) return base;
+  let unit = base;
+  for (const t of tiers) {
+    const max = (t.max !== null && t.max !== undefined && Number(t.max) > 0) ? Number(t.max) : Infinity;
+    if (item.qty >= Number(t.min) && item.qty <= max) { unit = Number(t.price); break; }
+  }
+  return unit;
+}
 
 const Order = {
   // Groups cart rows (each already joined to its product) by seller,
@@ -36,11 +56,24 @@ const Order = {
       const g = groups[sellerKey];
       g.items.push(item);
       g.weight += Number(item.weight || 1) * item.qty;
-      g.subtotal += Number(item.price) * item.qty;
-      g.sellerSubtotal += Number(item.seller_price != null ? item.seller_price : item.price) * item.qty;
-      g.marginTotal += Number(item.price_margin || 0) * item.qty;
-      g.deliveryAllocationTotal += Number(item.price_delivery_allocation || 0) * item.qty;
-      g.riskAllocationTotal += Number(item.price_risk_allocation || 0) * item.qty;
+
+      // Wholesale/quantity pricing: if this product has bulk-price tiers
+      // and qty crosses a threshold, the buyer pays that tier's price
+      // instead of the regular unit price. The discount ratio is also
+      // applied to the seller's earnings and KenLynk's margin/delivery/
+      // risk components, so a 20% bulk discount reduces everyone's cut
+      // by that same 20% rather than landing entirely on one side
+      // without being asked to - the revenue split stays the same as a
+      // regular-price order, just scaled down together.
+      const regularUnitPrice = Number(item.price) || 0;
+      const unitPrice = getUnitPriceForQty(item);
+      const ratio = regularUnitPrice > 0 ? unitPrice / regularUnitPrice : 1;
+
+      g.subtotal += unitPrice * item.qty;
+      g.sellerSubtotal += Number(item.seller_price != null ? item.seller_price : item.price) * ratio * item.qty;
+      g.marginTotal += Number(item.price_margin || 0) * ratio * item.qty;
+      g.deliveryAllocationTotal += Number(item.price_delivery_allocation || 0) * ratio * item.qty;
+      g.riskAllocationTotal += Number(item.price_risk_allocation || 0) * ratio * item.qty;
     });
     return Object.values(groups);
   },
@@ -121,6 +154,14 @@ const Order = {
         );
 
         for (const item of group.items) {
+          // Same wholesale-tier price used for the group's subtotal above -
+          // recorded here too, so order history shows what was actually
+          // charged per unit, not the regular price the buyer didn't pay.
+          const chargedUnitPrice = getUnitPriceForQty(item);
+          const regularUnitPrice = Number(item.price) || 0;
+          const ratio = regularUnitPrice > 0 ? chargedUnitPrice / regularUnitPrice : 1;
+          const chargedSellerPrice = Number(item.seller_price != null ? item.seller_price : item.price) * ratio;
+
           // variant_id/variant_name/variant_sku restore which exact
           // option (colour, size, etc) was ordered - this was dropped in
           // an earlier revision of this file and is fixed here.
@@ -128,8 +169,8 @@ const Order = {
             `INSERT INTO order_items
               (order_id, product_id, product_name, qty, price, seller_price, variant_id, variant_name, variant_sku)
              VALUES (?,?,?,?,?,?,?,?,?)`,
-            [orderId, item.id, item.name, item.qty, item.price,
-             item.seller_price != null ? item.seller_price : item.price,
+            [orderId, item.id, item.name, item.qty, chargedUnitPrice,
+             chargedSellerPrice,
              item.variant_id || null, item.variant_name || null, item.variant_sku || null]
           );
           // Decrement the specific variant's stock when one was ordered,
@@ -202,6 +243,13 @@ const Order = {
         } catch (notifyErr) {
           console.error('Failed to notify admin of new order:', notifyErr.message);
         }
+
+        // SMS is layered on top of the in-app notification above, never
+        // a replacement for it - a failed/unconfigured SMS provider
+        // never blocks or affects order creation (see smsService.js).
+        await sendAdminOrderSms(
+          `KenLynk: New order #${created.order_number}. ${customer.name} (${customer.phone}). Total KES ${Number(created.total).toLocaleString()}.`
+        );
       }
 
       return createdOrders;

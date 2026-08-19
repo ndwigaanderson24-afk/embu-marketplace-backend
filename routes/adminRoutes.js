@@ -38,6 +38,7 @@ router.put('/pricing/rules/:id', wrap(admin.updatePricingRule));
 router.delete('/pricing/rules/:id', wrap(admin.deletePricingRule));
 router.post('/pricing/migrate-existing-products', wrap(admin.migrateExistingProductPricing));
 router.post('/pricing/backfill-category-commission', wrap(admin.backfillCategoryCommission));
+router.post('/products/migrate-images-to-cloudinary', wrap(admin.migrateImagesToCloudinary));
 router.post('/pricing/clear-variant-pricing', wrap(admin.clearVariantPricing));
 router.get('/analytics', wrap(admin.getAnalytics));
 

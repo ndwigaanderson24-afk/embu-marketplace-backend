@@ -221,6 +221,16 @@ exports.backfillCategoryCommission = async (req, res) => {
   return sendSuccess(res, 200, `Recalculated pricing for ${result.migrated} of ${result.totalFound} products.`, result);
 };
 
+// POST /api/admin/products/migrate-images-to-cloudinary - one-time
+// action. Moves every existing product photo that's still raw base64
+// in the database or an old Render /uploads/ link over to Cloudinary,
+// so it stops counting against Render's bandwidth. Only touches
+// products that still need it - safe to run more than once.
+exports.migrateImagesToCloudinary = async (req, res) => {
+  const result = await Product.migrateImagesToCloudinary();
+  return sendSuccess(res, 200, `Migrated images for ${result.migrated} of ${result.totalFound} product(s).`, result);
+};
+
 // POST /api/admin/pricing/clear-variant-pricing - one-time cleanup.
 // Per-variant pricing was removed entirely (every variant now always
 // uses its parent product's price) - this clears out any price that

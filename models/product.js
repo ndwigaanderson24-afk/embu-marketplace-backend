@@ -4,6 +4,7 @@ const pool = require('../db');
 const PricingRule = require('./pricingRule');
 const PricingSettings = require('./pricingSettings');
 const { computeFinalPrice } = require('../helpers');
+const { uploadAnyToCloudinary, needsMigration } = require('../cloudinaryUpload');
 
 // Shared by create/update - fetches the current active rules + global
 // settings and runs the actual calculation. Kept in one place so
@@ -79,6 +80,57 @@ const Product = {
            priced.deliveryAllocation, priced.riskAllocation, row.id]
         );
         migrated++;
+      } catch (err) {
+        errors.push({ productId: row.id, error: err.message });
+      }
+    }
+    return { totalFound: rows.length, migrated, errors };
+  },
+
+  // One-time migration: moves every existing product photo that isn't
+  // already on Cloudinary (raw base64 still sitting in the database, or
+  // an old link pointing at Render's own /uploads/ disk) over to
+  // Cloudinary, rewriting the stored value to the real URL Cloudinary
+  // hands back. Only touches rows that actually still need it, so it's
+  // safe to run more than once - same pattern as the pricing migrations
+  // above. Covers both the single `image` field and every entry inside
+  // `images_json` (a product can have more than one photo).
+  async migrateImagesToCloudinary() {
+    const [rows] = await pool.query(`
+      SELECT id, image, images_json FROM products
+      WHERE (image IS NOT NULL AND image != '' AND image NOT LIKE '%res.cloudinary.com%')
+         OR (images_json IS NOT NULL AND images_json NOT LIKE '%res.cloudinary.com%'
+             AND images_json != '[]' AND images_json != 'null')
+    `);
+    let migrated = 0;
+    const errors = [];
+    for (const row of rows) {
+      try {
+        let changed = false;
+        let newImage = row.image;
+        let newImagesJson = row.images_json;
+
+        if (needsMigration(row.image)) {
+          newImage = await uploadAnyToCloudinary(row.image, 'kenlynk/products');
+          changed = true;
+        }
+
+        if (row.images_json) {
+          const images = JSON.parse(row.images_json);
+          if (Array.isArray(images) && images.some(needsMigration)) {
+            const migratedImages = [];
+            for (const img of images) {
+              migratedImages.push(needsMigration(img) ? await uploadAnyToCloudinary(img, 'kenlynk/products') : img);
+            }
+            newImagesJson = JSON.stringify(migratedImages);
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          await pool.query('UPDATE products SET image = ?, images_json = ? WHERE id = ?', [newImage, newImagesJson, row.id]);
+          migrated++;
+        }
       } catch (err) {
         errors.push({ productId: row.id, error: err.message });
       }

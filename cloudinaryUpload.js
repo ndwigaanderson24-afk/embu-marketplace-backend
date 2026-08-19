@@ -58,4 +58,23 @@ function isBase64DataUrl(value) {
   return typeof value === 'string' && value.startsWith('data:image');
 }
 
-module.exports = { uploadBufferToCloudinary, uploadBase64ToCloudinary, isBase64DataUrl };
+// For the one-time migration of existing products: Cloudinary's upload()
+// happily accepts either a base64 data URL OR a plain http(s) URL as its
+// source - meaning an old image still sitting on Render's own disk
+// (e.g. "https://embu-marketplace-backend.onrender.com/uploads/products/xyz.jpg")
+// can be handed to Cloudinary directly, no need to download it into
+// memory first. Used for both cases so the migration doesn't need to
+// tell them apart itself.
+async function uploadAnyToCloudinary(source, folder) {
+  const result = await cloudinary.uploader.upload(source, { folder });
+  return result.secure_url;
+}
+
+// True for anything that's neither already a Cloudinary URL nor empty -
+// i.e. still needs migrating (raw base64, or an old Render /uploads/ path).
+function needsMigration(value) {
+  if (!value || typeof value !== 'string') return false;
+  return !value.includes('res.cloudinary.com');
+}
+
+module.exports = { uploadBufferToCloudinary, uploadBase64ToCloudinary, uploadAnyToCloudinary, isBase64DataUrl, needsMigration };

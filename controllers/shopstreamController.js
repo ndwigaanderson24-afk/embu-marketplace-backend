@@ -26,10 +26,16 @@ function buildToken(channelName, uid, role) {
 // hands back a genuine broadcaster token so their video actually goes
 // out over Agora's network instead of just showing locally.
 exports.goLive = async (req, res) => {
-  const sellerId = req.user.id;
+  // A real seller broadcasts under their own id; admin (req.user is
+  // never set for an admin token - see middleware/auth.js) broadcasts
+  // with seller_id NULL, same pattern as an admin-added platform
+  // product having no seller either.
+  const sellerId = req.user ? req.user.id : null;
   const { product_id, title } = req.body;
 
-  if (product_id) {
+  if (product_id && req.user) {
+    // Ownership only makes sense for a real seller - admin doesn't own
+    // any product but should be able to showcase any of them.
     const product = await Product.findById(product_id);
     if (!product || product.seller_id !== sellerId) {
       return sendError(res, 403, 'That product is not yours.');
@@ -106,7 +112,11 @@ exports.getLiveStreams = async (req, res) => {
 // of a locally-simulated one that only the seller could ever see.
 exports.updateViewerCount = async (req, res) => {
   const stream = await LiveStream.findById(req.params.id);
-  if (!stream || stream.seller_id !== req.user.id) {
+  // req.user is undefined for an admin token - null-safe comparison so
+  // admin's own (seller_id NULL) broadcast is recognized as theirs,
+  // same as any real seller's stream is recognized as theirs.
+  const requesterId = req.user ? req.user.id : null;
+  if (!stream || stream.seller_id !== requesterId) {
     return sendError(res, 403, 'Not your stream.');
   }
   const count = Math.max(0, parseInt(req.body.count, 10) || 0);
@@ -116,7 +126,8 @@ exports.updateViewerCount = async (req, res) => {
 
 exports.endLive = async (req, res) => {
   const stream = await LiveStream.findById(req.params.id);
-  if (!stream || stream.seller_id !== req.user.id) {
+  const requesterId = req.user ? req.user.id : null;
+  if (!stream || stream.seller_id !== requesterId) {
     return sendError(res, 403, 'Not your stream.');
   }
   await LiveStream.end(stream.id);

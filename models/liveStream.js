@@ -31,10 +31,10 @@ const LiveStream = {
   // of which device or role is asking.
   async findAllLive() {
     const [rows] = await pool.query(
-      `SELECT ls.*, u.business_name AS seller_business_name, u.email AS seller_email,
+      `SELECT ls.*, COALESCE(u.business_name, 'KenLynk') AS seller_business_name, u.email AS seller_email,
               p.name AS product_name, p.image AS product_image
        FROM live_streams ls
-       JOIN users u ON u.id = ls.seller_id
+       LEFT JOIN users u ON u.id = ls.seller_id
        LEFT JOIN products p ON p.id = ls.product_id
        WHERE ls.status = 'live'
        ORDER BY ls.is_promoted DESC, ls.started_at DESC`
@@ -53,9 +53,12 @@ const LiveStream = {
   // Ends any stream a seller left open without properly clicking "End
   // Live" (closed tab, lost connection, etc) - called when they start a
   // new one, so a seller never shows as live twice or gets stuck live
-  // forever from an abandoned session.
+  // forever from an abandoned session. Uses <=> (NULL-safe equals)
+  // rather than plain = , since a plain = NULL never matches anything
+  // in SQL - without this, an admin's own abandoned broadcast
+  // (seller_id NULL) would never get cleaned up here.
   async endAllForSeller(sellerId) {
-    await pool.query('UPDATE live_streams SET status = \'ended\', ended_at = NOW() WHERE seller_id = ? AND status = \'live\'', [sellerId]);
+    await pool.query('UPDATE live_streams SET status = \'ended\', ended_at = NOW() WHERE seller_id <=> ? AND status = \'live\'', [sellerId]);
   },
 
   // Likes are a simple running count on the stream itself - not tied to

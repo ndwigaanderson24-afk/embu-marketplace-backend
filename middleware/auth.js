@@ -75,4 +75,16 @@ function requireActiveSeller(req, res, next) {
   next();
 }
 
-module.exports = { protect, optionalAuth, requireAdmin, requireActiveSeller };
+// Same protection as requireActiveSeller, but also lets a genuine admin
+// session straight through untouched - matches the platform's own rule
+// that admin should have free, no-friction access to ShopStream
+// (including going live) without ever being blocked by seller-approval
+// gates. requireActiveSeller itself is left completely unchanged; this
+// only adds an admin bypass in front of it, for the handful of routes
+// (starting/ending a broadcast) that admin also needs to reach.
+function requireActiveSellerOrAdmin(req, res, next) {
+  if (req.isAdmin) return next();
+  return requireActiveSeller(req, res, next);
+}
+
+module.exports = { protect, optionalAuth, requireAdmin, requireActiveSeller, requireActiveSellerOrAdmin };

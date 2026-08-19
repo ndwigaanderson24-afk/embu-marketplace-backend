@@ -6,6 +6,27 @@ const Order = require('../models/order');
 const { sendSuccess, sendError } = require('../helpers');
 const { uploadBufferToCloudinary, uploadBase64ToCloudinary, isBase64DataUrl } = require('../cloudinaryUpload');
 
+// The Admin form sends photos as `images`: an array of base64 data URLs
+// (one per photo) - NOT a singular `image` field. This uploads every
+// base64 entry in that array to Cloudinary in parallel and replaces it
+// with the real URL Cloudinary returns; an already-external URL (or a
+// singular legacy `image` field, kept for compatibility) passes through
+// untouched. Product.create/updateAsAdmin then derives `image` from
+// `images[0]` and `images_json` from the full array on their own, same
+// as before - this only fixes what actually lands in those fields.
+async function uploadIncomingImages(body) {
+  const out = { ...body };
+  if (Array.isArray(out.images)) {
+    out.images = await Promise.all(
+      out.images.map(img => isBase64DataUrl(img) ? uploadBase64ToCloudinary(img, 'kenlynk/products') : img)
+    );
+  }
+  if (isBase64DataUrl(out.image)) {
+    out.image = await uploadBase64ToCloudinary(out.image, 'kenlynk/products');
+  }
+  return out;
+}
+
 // The pricing breakdown (seller_price, price_margin,
 // price_delivery_allocation, price_risk_allocation) must never reach a
 // buyer - they see only the final, all-inclusive `price`. Admin-only
@@ -142,16 +163,8 @@ exports.adminCreate = async (req, res) => {
   if (!name || seller_price === undefined) return sendError(res, 400, 'name and seller_price are required.');
   if (Number(seller_price) <= 0) return sendError(res, 400, 'seller_price must be greater than 0.');
 
-  // The Admin form sends the photo as a base64 data URL in the JSON
-  // body - this used to get stored straight into the database as-is.
-  // Now it goes to Cloudinary first, and only the real URL Cloudinary
-  // returns gets saved. An already-external URL (or no image at all)
-  // passes through unchanged.
-  const image = isBase64DataUrl(req.body.image)
-    ? await uploadBase64ToCloudinary(req.body.image, 'kenlynk/products')
-    : req.body.image;
-
-  const productId = await Product.create(null, { ...req.body, image, county: req.body.county || null });
+  const body = await uploadIncomingImages(req.body);
+  const productId = await Product.create(null, { ...body, county: body.county || null });
   const product = await Product.findById(productId);
   return sendSuccess(res, 201, 'Product added.', { product });
 };
@@ -160,9 +173,7 @@ exports.adminCreate = async (req, res) => {
 // ones owned by a seller, bypassing the seller-ownership check that the
 // regular seller-facing update route enforces.
 exports.adminUpdate = async (req, res) => {
-  const body = isBase64DataUrl(req.body.image)
-    ? { ...req.body, image: await uploadBase64ToCloudinary(req.body.image, 'kenlynk/products') }
-    : req.body;
+  const body = await uploadIncomingImages(req.body);
   const updated = await Product.updateAsAdmin(req.params.id, body);
   if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
   const product = await Product.findById(req.params.id);

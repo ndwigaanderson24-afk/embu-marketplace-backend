@@ -50,9 +50,23 @@ exports.goLive = async (req, res) => {
   const channelName = `seller_${sellerId}_${Date.now()}`;
   const streamId = await LiveStream.create({ sellerId, productId: product_id || null, channelName, title });
 
+  // Agora's token/uid is a separate concept from our own seller_id - it
+  // just identifies this one broadcast connection, and must be a real
+  // number. sellerId being null (admin's own broadcast, no owning
+  // seller row) doesn't mean "no uid" - it needs its own stand-in.
+  // Confirmed by testing: this Agora project rejects uid 0 outright for
+  // a host/publisher token ("invalid token, authorized failed"), even
+  // though 0 is documented elsewhere as a general "any uid" wildcard -
+  // it needs an ordinary positive integer instead. 999999 is reserved
+  // here specifically for admin's own broadcasts, well clear of any
+  // real seller's user.id. The DB's seller_id stays null either way;
+  // this only affects what Agora itself sees.
+  const ADMIN_AGORA_UID = 999999;
+  const agoraUid = sellerId || ADMIN_AGORA_UID;
+
   let token;
   try {
-    token = buildToken(channelName, sellerId, RtcRole.PUBLISHER);
+    token = buildToken(channelName, agoraUid, RtcRole.PUBLISHER);
   } catch (err) {
     await LiveStream.end(streamId);
     return sendError(res, 500, err.message);
@@ -63,7 +77,7 @@ exports.goLive = async (req, res) => {
     channel_name: channelName,
     app_id: APP_ID,
     token,
-    uid: sellerId
+    uid: agoraUid
   });
 };
 

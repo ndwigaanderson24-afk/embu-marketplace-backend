@@ -37,4 +37,25 @@ function uploadBufferToCloudinary(fileBuffer, folder, resourceType = 'image') {
   });
 }
 
-module.exports = { uploadBufferToCloudinary };
+// The Admin "Add Product" form sends a photo as a base64 data URL
+// embedded directly in the JSON body (e.g. "data:image/jpeg;base64,...")
+// rather than as a multipart file - that's a separate code path from
+// the seller form's upload.js/multer flow above, and was still storing
+// that giant base64 string straight into the products table, never
+// touching Cloudinary at all. Cloudinary's own upload() accepts a data
+// URL directly as the source, so this needs no multer/buffer step -
+// just hand the string straight to Cloudinary and store the real URL
+// it returns instead.
+async function uploadBase64ToCloudinary(dataUrl, folder) {
+  const result = await cloudinary.uploader.upload(dataUrl, { folder });
+  return result.secure_url;
+}
+
+// True only for an actual base64 data URL - an already-external image
+// URL (http/https, e.g. a seller who pasted a link) should pass through
+// untouched rather than being re-uploaded.
+function isBase64DataUrl(value) {
+  return typeof value === 'string' && value.startsWith('data:image');
+}
+
+module.exports = { uploadBufferToCloudinary, uploadBase64ToCloudinary, isBase64DataUrl };

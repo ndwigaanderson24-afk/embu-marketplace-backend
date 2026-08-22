@@ -9,7 +9,8 @@ const AdminNotification = require('./adminNotification');
 const { sendAdminOrderSms } = require('../smsService');
 const {
   generateOrderNumber, generateTrackingNumber, calculateDeliveryFee,
-  PLATFORM_DEFAULT_COUNTY, REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL
+  PLATFORM_DEFAULT_COUNTY, REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL,
+  computeCommission, computeDeliveryFee
 } = require('../helpers');
 
 // Mirrors window.getUnitPriceForQty() in index.html exactly, so the cart
@@ -31,6 +32,32 @@ function getUnitPriceForQty(item) {
   return unit;
 }
 
+// Mirrors window.isKanyagaActive() in index.html exactly - a Kanyaga
+// deal is live right now if a kanyaga_price is set and the current
+// time falls inside its optional start/end window. Was previously
+// only shown on the product detail page for display - the buyer saw
+// "KANYAGA PRICE KES 11,999" but checkout still charged the regular
+// price. cart.js's getItems() already selects p.* so these columns
+// are already present on every cart item.
+function isKanyagaActiveNow(item) {
+  if (!item.kanyaga_price) return false;
+  const now = new Date();
+  if (item.kanyaga_start_at && new Date(item.kanyaga_start_at) > now) return false;
+  if (item.kanyaga_end_at && new Date(item.kanyaga_end_at) < now) return false;
+  return true;
+}
+
+// The real price a cart line is actually charged at - whichever of the
+// wholesale-tier price or an active Kanyaga price is lower for the
+// buyer, since both exist to represent "the deal price" and the more
+// generous one should win rather than one silently overriding the
+// other. Falls back to the regular per-unit price when neither applies.
+function getFinalUnitPrice(item) {
+  const wholesalePrice = getUnitPriceForQty(item);
+  if (!isKanyagaActiveNow(item)) return wholesalePrice;
+  return Math.min(wholesalePrice, Number(item.kanyaga_price));
+}
+
 const Order = {
   // Groups cart rows (each already joined to its product) by seller,
   // computing each group's own weight/subtotal - the shared foundation
@@ -39,9 +66,14 @@ const Order = {
   // subtotal is what the buyer pays (product.price is already
   // all-inclusive). sellerSubtotal is what sellers are actually owed
   // (product.seller_price, or the variant's own seller_price when one is
-  // selected) - the gap between the two is exactly KenLynk's margin +
-  // delivery allocation + risk allocation combined, already baked into
-  // each item's displayed price, never charged as a separate line item.
+  // selected) - the gap between the two is exactly KenLynk's commission +
+  // delivery fee combined, already baked into each item's displayed
+  // price, never charged as a separate line item. Commission and
+  // delivery fee are computed live here via the new fixed-bracket
+  // formula (computeCommission/computeDeliveryFee) rather than read from
+  // a stored column, since a cart line's price/weight are already known
+  // and the old per-row price_margin/price_delivery_allocation columns
+  // no longer exist.
   groupCartBySeller(cartItems) {
     const groups = {};
     cartItems.forEach(item => {
@@ -50,7 +82,7 @@ const Order = {
       if (!groups[sellerKey]) {
         groups[sellerKey] = {
           sellerId: item.seller_id || null, county, items: [], weight: 0,
-          subtotal: 0, sellerSubtotal: 0, marginTotal: 0, deliveryAllocationTotal: 0, riskAllocationTotal: 0
+          subtotal: 0, sellerSubtotal: 0, commissionTotal: 0, deliveryFeeTotal: 0
         };
       }
       const g = groups[sellerKey];
@@ -60,20 +92,21 @@ const Order = {
       // Wholesale/quantity pricing: if this product has bulk-price tiers
       // and qty crosses a threshold, the buyer pays that tier's price
       // instead of the regular unit price. The discount ratio is also
-      // applied to the seller's earnings and KenLynk's margin/delivery/
-      // risk components, so a 20% bulk discount reduces everyone's cut
-      // by that same 20% rather than landing entirely on one side
-      // without being asked to - the revenue split stays the same as a
-      // regular-price order, just scaled down together.
+      // applied to the seller's earnings and KenLynk's commission/
+      // delivery-fee components, so a 20% bulk discount reduces
+      // everyone's cut by that same 20% rather than landing entirely on
+      // one side without being asked to - the revenue split stays the
+      // same as a regular-price order, just scaled down together.
       const regularUnitPrice = Number(item.price) || 0;
-      const unitPrice = getUnitPriceForQty(item);
+      const unitPrice = getFinalUnitPrice(item);
       const ratio = regularUnitPrice > 0 ? unitPrice / regularUnitPrice : 1;
+      const commission = computeCommission(Number(item.seller_price != null ? item.seller_price : item.price));
+      const deliveryFee = computeDeliveryFee(item.weight);
 
       g.subtotal += unitPrice * item.qty;
       g.sellerSubtotal += Number(item.seller_price != null ? item.seller_price : item.price) * ratio * item.qty;
-      g.marginTotal += Number(item.price_margin || 0) * ratio * item.qty;
-      g.deliveryAllocationTotal += Number(item.price_delivery_allocation || 0) * ratio * item.qty;
-      g.riskAllocationTotal += Number(item.price_risk_allocation || 0) * ratio * item.qty;
+      g.commissionTotal += commission * ratio * item.qty;
+      g.deliveryFeeTotal += deliveryFee * ratio * item.qty;
     });
     return Object.values(groups);
   },
@@ -84,7 +117,7 @@ const Order = {
   // logisticsFee is an ESTIMATE of actual shipping cost (weight + route
   // based) purely for admin/internal reference - it is never added to
   // what the buyer pays. Delivery is already funded by each product's
-  // baked-in delivery allocation (deliveryAllocationTotal per group).
+  // baked-in delivery fee (deliveryFeeTotal per group).
   computeDeliveryPlan(cartItems, destCounty, deliveryType, weightOverride) {
     const groups = this.groupCartBySeller(cartItems);
     const autoTotalWeight = groups.reduce((s, g) => s + g.weight, 0);
@@ -123,20 +156,20 @@ const Order = {
         // simply the sum of already-inclusive product prices.
         const total = group.subtotal;
         const sellerEarnings = group.sellerSubtotal;
-        const commission = group.subtotal - sellerEarnings; // KenLynk's actual take: margin + delivery + risk, combined
+        const commission = group.subtotal - sellerEarnings; // KenLynk's actual take: commission + delivery fee, combined
 
         const [result] = await conn.query(
           `INSERT INTO orders
             (order_number, tracking_number, seller_id, customer_user_id, customer_name, customer_phone,
              customer_id_number, customer_address, status, delivery_type, delivery_address,
              origin_county, dest_county, dest_area, weight_kg, delivery_fee, subtotal, total,
-             commission, margin_total, risk_allocation_total, seller_earnings, referral_code, pickup_date)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+             commission, commission_total, seller_earnings, referral_code, pickup_date)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [orderNumber, trackingNumber, group.sellerId, customer.userId || null, customer.name, customer.phone,
            customer.idNumber, customer.address || null, 'Pending Payment',
            delivery.type, delivery.type === 'delivery' ? delivery.address : null,
-           group.county, delivery.destCounty, delivery.destArea || null, group.weight, group.deliveryAllocationTotal,
-           group.subtotal, total, commission, group.marginTotal, group.riskAllocationTotal, sellerEarnings,
+           group.county, delivery.destCounty, delivery.destArea || null, group.weight, group.deliveryFeeTotal,
+           group.subtotal, total, commission, group.commissionTotal, sellerEarnings,
            delivery.referralCode || null, delivery.pickupDate || null]
         );
         const orderId = result.insertId;
@@ -157,7 +190,7 @@ const Order = {
           // Same wholesale-tier price used for the group's subtotal above -
           // recorded here too, so order history shows what was actually
           // charged per unit, not the regular price the buyer didn't pay.
-          const chargedUnitPrice = getUnitPriceForQty(item);
+          const chargedUnitPrice = getFinalUnitPrice(item);
           const regularUnitPrice = Number(item.price) || 0;
           const ratio = regularUnitPrice > 0 ? chargedUnitPrice / regularUnitPrice : 1;
           const chargedSellerPrice = Number(item.seller_price != null ? item.seller_price : item.price) * ratio;

@@ -5,6 +5,7 @@ const Review = require('../models/review');
 const Order = require('../models/order');
 const { sendSuccess, sendError } = require('../helpers');
 const { uploadBufferToCloudinary, uploadBase64ToCloudinary, isBase64DataUrl } = require('../cloudinaryUpload');
+const AnalyticsEvent = require('../models/analyticsEvent');
 
 // The Admin form sends photos as `images`: an array of base64 data URLs
 // (one per photo) - NOT a singular `image` field. This uploads every
@@ -27,11 +28,11 @@ async function uploadIncomingImages(body) {
   return out;
 }
 
-// The pricing breakdown (seller_price, price_margin,
-// price_delivery_allocation, price_risk_allocation) must never reach a
-// buyer - they see only the final, all-inclusive `price`. Admin-only
-// endpoints (adminGetAll etc) skip this and return the full row.
-const PRICE_INTERNAL_FIELDS = ['seller_price', 'price_margin', 'price_delivery_allocation', 'price_risk_allocation'];
+// The pricing breakdown (seller_price, price_commission,
+// price_delivery_fee) must never reach a buyer - they see only the
+// final, all-inclusive `price`. Admin-only endpoints (adminGetAll etc)
+// skip this and return the full row.
+const PRICE_INTERNAL_FIELDS = ['seller_price', 'price_commission', 'price_delivery_fee'];
 
 function stripPricingForBuyer(product) {
   if (!product) return product;
@@ -41,14 +42,13 @@ function stripPricingForBuyer(product) {
 }
 
 // A seller can see their own asking price and the final buyer price
-// (so they understand what changed), but not the granular margin/
-// delivery/risk split - that stays admin-only.
+// (so they understand what changed), but not the commission/delivery-fee
+// split - that stays admin-only, same visibility rule as before.
 function stripBreakdownForSeller(product) {
   if (!product) return product;
   const clean = { ...product };
-  delete clean.price_margin;
-  delete clean.price_delivery_allocation;
-  delete clean.price_risk_allocation;
+  delete clean.price_commission;
+  delete clean.price_delivery_fee;
   return clean;
 }
 
@@ -57,15 +57,21 @@ function stripBreakdownForSeller(product) {
 // Lets a seller see what a buyer will actually pay before they publish
 // - runs the exact same calculation product creation uses, just without
 // saving anything. Returns only seller_price (echoed back) and the
-// final price - not the margin/delivery/risk split, which stays
-// admin-only even in this preview.
+// final price to a seller; admin also gets the commission/delivery-fee
+// breakdown, matching the same seller-vs-admin visibility rule used
+// everywhere else pricing is shown.
 exports.previewPrice = async (req, res) => {
-  const { seller_price, category, fragile } = req.body;
+  const { seller_price, weight } = req.body;
   if (seller_price === undefined || Number(seller_price) <= 0) {
     return sendError(res, 400, 'seller_price must be greater than 0.');
   }
-  const priced = await Product.previewPrice(seller_price, { category, fragile: !!fragile });
-  return sendSuccess(res, 200, 'Price calculated.', { seller_price: priced.sellerPrice, price: priced.finalPrice });
+  const priced = await Product.previewPrice(seller_price, { weight });
+  const data = { seller_price: priced.sellerPrice, price: priced.finalPrice };
+  if (req.isAdmin) {
+    data.commission = priced.commission;
+    data.delivery_fee = priced.deliveryFee;
+  }
+  return sendSuccess(res, 200, 'Price calculated.', data);
 };
 
 exports.create = async (req, res) => {
@@ -114,6 +120,100 @@ exports.remove = async (req, res) => {
 exports.getPublicList = async (req, res) => {
   const products = await Product.findPublic(req.query);
   return sendSuccess(res, 200, 'Products retrieved.', { products: products.map(stripPricingForBuyer) });
+};
+
+// GET /api/products/wholesale  (public) - every wholesale-enabled
+// product across every category, with filters/sort applied on top of
+// the parsed tier data. Filtering/sorting happens here rather than in
+// SQL since tiers are stored as JSON and the codebase already parses
+// them in JS elsewhere (getUnitPriceForQty in order.js) - keeping that
+// same approach here rather than introducing fragile JSON-path SQL.
+exports.getWholesale = async (req, res) => {
+  const raw = await Product.findWholesale();
+
+  let items = raw.map(p => {
+    let tiers = [];
+    try { tiers = JSON.parse(p.wholesale_tiers_json || '[]'); } catch (e) { tiers = []; }
+    const prices = tiers.map(t => Number(t.price)).filter(n => !isNaN(n));
+    const lowestWholesalePrice = prices.length ? Math.min(...prices) : Number(p.price);
+    const moq = tiers.length ? Number(tiers[0].min) || 1 : 1;
+    const retailPrice = Number(p.price) || 0;
+    const bestDealPercent = retailPrice > 0
+      ? Math.round(((retailPrice - lowestWholesalePrice) / retailPrice) * 100)
+      : 0;
+    return { ...stripPricingForBuyer(p), wholesaleTiers: tiers, moq, lowestWholesalePrice, bestDealPercent };
+  });
+
+  // Filters
+  const { category_id, min_price, max_price, min_moq, seller_id, county, sort } = req.query;
+  if (category_id) items = items.filter(p => String(p.category_id) === String(category_id));
+  if (min_price) items = items.filter(p => p.lowestWholesalePrice >= Number(min_price));
+  if (max_price) items = items.filter(p => p.lowestWholesalePrice <= Number(max_price));
+  if (min_moq) items = items.filter(p => p.moq >= Number(min_moq));
+  if (seller_id) items = items.filter(p => String(p.seller_id) === String(seller_id));
+  if (county) items = items.filter(p => (p.county || '').toLowerCase() === String(county).toLowerCase());
+
+  // Sort
+  if (sort === 'popular') {
+    const viewCounts = await AnalyticsEvent.getViewCountsByProduct(items.map(p => p.id));
+    items.forEach(p => { p.views = viewCounts[p.id] || 0; });
+    items.sort((a, b) => b.views - a.views);
+  } else if (sort === 'price') {
+    items.sort((a, b) => a.lowestWholesalePrice - b.lowestWholesalePrice);
+  } else if (sort === 'deal') {
+    items.sort((a, b) => b.bestDealPercent - a.bestDealPercent);
+  } else {
+    // 'newest' or unspecified - default
+    items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+
+  // Simple pagination
+  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const offset = Number(req.query.offset) || 0;
+  const total = items.length;
+  items = items.slice(offset, offset + limit);
+
+  return sendSuccess(res, 200, 'Wholesale products retrieved.', { products: items, total });
+};
+
+// GET /api/products/kanyaga  (public) - every product currently in an
+// active Kanyaga campaign. Status (Active/Scheduled/Expired) is worked
+// out here by comparing kanyaga_start_at/kanyaga_end_at to right now,
+// never stored on the row, so a product can never get stuck showing a
+// stale status - only genuinely Active ones are returned here; a
+// Scheduled or Expired product just quietly isn't included, no cleanup
+// job needed.
+exports.getKanyaga = async (req, res) => {
+  const raw = await Product.findKanyaga();
+  const now = new Date();
+
+  const items = raw
+    .map(p => {
+      const start = p.kanyaga_start_at ? new Date(p.kanyaga_start_at) : null;
+      const end = p.kanyaga_end_at ? new Date(p.kanyaga_end_at) : null;
+      let kanyagaStatus;
+      if (start && start > now) kanyagaStatus = 'scheduled';
+      else if (end && end < now) kanyagaStatus = 'expired';
+      else kanyagaStatus = 'active';
+
+      const regularPrice = Number(p.price) || 0;
+      const kanyagaPrice = Number(p.kanyaga_price) || 0;
+      const savedAmount = Math.max(0, regularPrice - kanyagaPrice);
+      const savedPercent = regularPrice > 0 ? Math.round((savedAmount / regularPrice) * 100) : 0;
+
+      return {
+        ...stripPricingForBuyer(p),
+        kanyagaStatus,
+        kanyagaPrice,
+        regularPrice,
+        savedAmount,
+        savedPercent,
+        kanyagaCampaign: p.kanyaga_campaign || 'kanyaga'
+      };
+    })
+    .filter(p => p.kanyagaStatus === 'active');
+
+  return sendSuccess(res, 200, 'Kanyaga products retrieved.', { products: items });
 };
 
 // GET /api/products/:id  (public)

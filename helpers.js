@@ -92,67 +92,56 @@ function todayStr() {
 // `settings` is the single pricing_settings row (defaults + fragile
 // surcharge). Both are passed in rather than fetched here, so this
 // stays a pure, easily-testable function.
-function pickPricingRule(sellerPrice, category, rules) {
-  const candidates = (rules || []).filter(r => {
-    if (!r.active) return false;
-    if (r.category && r.category !== category) return false;
-    if (sellerPrice < Number(r.min_value)) return false;
-    if (r.max_value !== null && r.max_value !== undefined && sellerPrice > Number(r.max_value)) return false;
-    return true;
-  });
-  if (!candidates.length) return null;
-  // A rule that names this exact category beats a wildcard (category:
-  // NULL) rule; among equally-specific matches, higher priority wins.
-  candidates.sort((a, b) => {
-    const aSpecific = a.category ? 1 : 0;
-    const bSpecific = b.category ? 1 : 0;
-    if (aSpecific !== bSpecific) return bSpecific - aSpecific;
-    return (b.priority || 0) - (a.priority || 0);
-  });
-  return candidates[0];
-}
-
-function applyAllocation(base, type, value) {
-  const amount = type === 'percent' ? base * (Number(value) / 100) : Number(value);
-  return Math.round(amount * 100) / 100;
-}
-
-// Returns { finalPrice, sellerPrice, categoryCommission, margin, deliveryAllocation, riskAllocation, ruleUsed }.
-// sellerPrice, category, and fragile come from the product being priced.
+// ══════════════════════════════════════════════════════════════════
+// PRICING MODEL — replaces the old rules-based engine (per-category
+// margin/delivery-allocation/risk-allocation/commission-%, configurable
+// via the old Pricing Engine admin panel) with fixed commission and
+// delivery-fee brackets. This is now the ONLY pricing calculation used
+// anywhere on KenLynk - the old pricing_rules/pricing_settings tables
+// are no longer read by this function at all.
 //
-// categoryCommission is KenLynk's genuinely separate per-category cut -
-// distinct from margin/delivery/risk, which fund the all-inclusive
-// pricing model itself. It's always a percentage of sellerPrice (never
-// of the subtotal, never a flat amount), taken from the matched rule's
-// category_commission_rate, or settings.default_category_commission_rate
-// when no rule specifies one (rule.category_commission_rate is nullable
-// specifically so existing rules can omit it and just inherit the
-// global default, rather than needing every rule backfilled at once).
-function computeFinalPrice(sellerPrice, { category, fragile } = {}, rules, settings) {
+// Final Customer Price = Product Price + Commission + Delivery Fee
+//
+// Commission is a flat KES amount looked up from the product's own
+// price, not a percentage - below KES 500 the commission equals the
+// product price itself (a deliberate, explicit rule, not a rounding
+// artifact). Delivery fee is looked up from the product's weight, with
+// a per-2kg-block charge above 70kg (any partial block still costs a
+// full block, e.g. 71kg = one full extra block).
+function computeCommission(productPrice) {
+  const p = Number(productPrice) || 0;
+  if (p < 500) return p;
+  if (p <= 999) return 400;
+  if (p <= 2499) return 800;
+  if (p <= 4999) return 1500;
+  if (p <= 9999) return 2500;
+  if (p <= 19999) return 3500;
+  if (p <= 29999) return 4500;
+  if (p <= 49999) return 5000;
+  if (p <= 64999) return 6000;
+  return 7000; // >= 65000
+}
+
+function computeDeliveryFee(weight) {
+  const w = Number(weight) || 0;
+  if (w <= 20) return 250;
+  if (w <= 40) return 400;
+  if (w <= 70) return 450;
+  const extraBlocks = Math.ceil((w - 70) / 2);
+  return 450 + extraBlocks * 50;
+}
+
+// Returns { finalPrice, sellerPrice, commission, deliveryFee }.
+// sellerPrice and weight come from the product being priced - category
+// and fragile status no longer factor into pricing at all under this
+// model (the old model's category-commission and fragile-risk concepts
+// are gone, not just unused).
+function computeFinalPrice(sellerPrice, { weight } = {}) {
   sellerPrice = Number(sellerPrice) || 0;
-  const rule = pickPricingRule(sellerPrice, category, rules);
-
-  const marginType = rule ? rule.margin_type : settings.default_margin_type;
-  const marginValue = rule ? rule.margin_value : settings.default_margin_value;
-  const deliveryType = rule ? rule.delivery_type : settings.default_delivery_type;
-  const deliveryValue = rule ? rule.delivery_value : settings.default_delivery_value;
-  const categoryCommissionRate = (rule && rule.category_commission_rate !== null && rule.category_commission_rate !== undefined)
-    ? rule.category_commission_rate
-    : settings.default_category_commission_rate;
-
-  const margin = applyAllocation(sellerPrice, marginType, marginValue);
-  const deliveryAllocation = applyAllocation(sellerPrice, deliveryType, deliveryValue);
-  const riskAllocation = fragile
-    ? applyAllocation(sellerPrice, settings.fragile_risk_type, settings.fragile_risk_value)
-    : 0;
-  const categoryCommission = applyAllocation(sellerPrice, 'percent', categoryCommissionRate);
-
-  const finalPrice = Math.round((sellerPrice + categoryCommission + margin + deliveryAllocation + riskAllocation) * 100) / 100;
-
-  return {
-    finalPrice, sellerPrice, categoryCommission, margin, deliveryAllocation, riskAllocation,
-    ruleUsed: rule ? rule.name : 'default'
-  };
+  const commission = computeCommission(sellerPrice);
+  const deliveryFee = computeDeliveryFee(weight);
+  const finalPrice = Math.round((sellerPrice + commission + deliveryFee) * 100) / 100;
+  return { finalPrice, sellerPrice, commission, deliveryFee };
 }
 
 module.exports = {
@@ -163,5 +152,5 @@ module.exports = {
   SUBSCRIPTION_PLANS, getSubscriptionPrice, getSubscriptionMonths,
   REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL,
   addMonths, todayStr,
-  computeFinalPrice, pickPricingRule
+  computeFinalPrice, computeCommission, computeDeliveryFee
 };

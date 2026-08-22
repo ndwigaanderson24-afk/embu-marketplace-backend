@@ -22,7 +22,7 @@ function resolveOwner(req) {
 // now includes the internal pricing breakdown - this is a buyer-facing
 // surface, so that breakdown must never reach the response. The buyer
 // sees only the item's final price.
-const PRICE_INTERNAL_FIELDS = ['seller_price', 'price_margin', 'price_delivery_allocation', 'price_risk_allocation'];
+const PRICE_INTERNAL_FIELDS = ['seller_price', 'price_commission', 'price_delivery_fee'];
 function stripPricingForBuyer(items) {
   return items.map(item => {
     const clean = { ...item };

@@ -29,6 +29,22 @@ const AnalyticsEvent = {
       [sellerId]
     );
     return { views: Number(row.views) || 0, clicks: Number(row.clicks) || 0 };
+  },
+
+  // View count per product, for the wholesale page's "Popular" sort -
+  // one query for the whole page rather than one per product.
+  async getViewCountsByProduct(productIds) {
+    if (!productIds || !productIds.length) return {};
+    const placeholders = productIds.map(() => '?').join(',');
+    const [rows] = await pool.query(
+      `SELECT product_id, COUNT(*) AS views FROM product_analytics_events
+       WHERE event_type = 'view' AND product_id IN (${placeholders})
+       GROUP BY product_id`,
+      productIds
+    );
+    const map = {};
+    rows.forEach(r => { map[r.product_id] = Number(r.views); });
+    return map;
   }
 };
 

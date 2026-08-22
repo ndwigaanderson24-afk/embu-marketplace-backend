@@ -199,25 +199,17 @@ exports.deletePricingRule = async (req, res) => {
   return sendSuccess(res, 200, 'Pricing rule deleted.', {});
 };
 
-// POST /api/admin/pricing/migrate-existing-products - one-time action
-// (safe to run more than once - only touches products that haven't
-// been migrated yet). Treats each existing product's current price as
-// what the seller was asking for, then computes a real final price on
-// top of it using whatever rules/defaults are active right now.
-exports.migrateExistingProductPricing = async (req, res) => {
-  const result = await Product.migrateExistingPricing();
-  return sendSuccess(res, 200, `Migrated ${result.migrated} of ${result.totalFound} products.`, result);
-};
-
-// POST /api/admin/pricing/backfill-category-commission - one-time
-// action for products that already have a seller_price (created before
-// the per-category commission existed). Recalculates price/breakdown
-// using current pricing_rules/settings so the new commission term gets
-// folded in. Safe to run more than once. Distinct from
-// migrateExistingPricing above, which only handles legacy products that
-// never had seller_price set at all.
-exports.backfillCategoryCommission = async (req, res) => {
-  const result = await Product.backfillCategoryCommission();
+// POST /api/admin/pricing/recalculate-all - replaces both of the old
+// migration endpoints (migrate-existing-products, which only handled
+// legacy never-priced products, and backfill-category-commission, for
+// the old per-category commission rollout) with a single action:
+// recalculates every product's price under the new fixed commission/
+// delivery-fee brackets. Safe to run more than once - e.g. after
+// deliberately changing the bracket amounts in code and wanting every
+// existing product to pick up the new numbers immediately, per the
+// requirement that existing products never need manual editing.
+exports.recalculateAllPrices = async (req, res) => {
+  const result = await Product.recalculateAllPricesNewModel();
   return sendSuccess(res, 200, `Recalculated pricing for ${result.migrated} of ${result.totalFound} products.`, result);
 };
 

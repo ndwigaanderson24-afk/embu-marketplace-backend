@@ -15,6 +15,8 @@ function wrap(fn) {
 
 // Public storefront
 router.get('/', wrap(product.getPublicList));
+router.get('/wholesale', wrap(product.getWholesale));
+router.get('/kanyaga', wrap(product.getKanyaga));
 
 // Seller (must come before "/:id" so "/mine" isn't swallowed by the param route)
 router.get('/mine', protect, requireActiveSeller, wrap(product.getMine));

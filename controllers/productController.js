@@ -147,20 +147,24 @@ exports.getWholesale = async (req, res) => {
   return sendSuccess(res, 200, 'Wholesale products retrieved.', { products: items, total });
 };
 
-// Turns a MySQL space-separated datetime ("2026-08-22 10:00:00") into
-// something new Date() can only read one way - unambiguously UTC.
-// Without this, V8 (both in the browser and in this Node backend) falls
-// back to interpreting a space-separated datetime as LOCAL time, so the
-// browser and this server could each read the exact same stored value
-// as a different moment whenever the two run in different timezones.
-// The frontend's mapApiProduct() already does this exact conversion for
+// Turns a MySQL datetime into something new Date() can only read one
+// way - unambiguously UTC. mysql2 can hand this back either as a plain
+// space-separated string ("2026-08-22 10:00:00") or as an already-
+// parsed JS Date object depending on driver config, so this handles
+// both rather than assuming one. For the string case: without this, V8
+// (both in the browser and in this Node backend) falls back to
+// interpreting a space-separated datetime as LOCAL time, so the browser
+// and this server could each read the exact same stored value as a
+// different moment whenever the two run in different timezones. The
+// frontend's mapApiProduct() already does the same conversion for
 // display (kanyagaStartAt/kanyagaEndAt, flashDealEndsAt) - this mirrors
 // it here so the backend's notion of "is this Kanyaga deal active right
 // now" can never disagree with what the Shop page already showed the
 // admin when they set it up.
 function parseMysqlDatetimeAsUtc(value) {
   if (!value) return null;
-  return new Date(value.replace(' ', 'T') + 'Z');
+  if (value instanceof Date) return value;
+  return new Date(String(value).replace(' ', 'T') + 'Z');
 }
 
 // GET /api/products/kanyaga  (public) - every product currently in an

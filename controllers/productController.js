@@ -4,29 +4,7 @@ const Product = require('../models/product');
 const Review = require('../models/review');
 const Order = require('../models/order');
 const { sendSuccess, sendError } = require('../helpers');
-const { uploadBufferToCloudinary, uploadBase64ToCloudinary, isBase64DataUrl } = require('../cloudinaryUpload');
 const AnalyticsEvent = require('../models/analyticsEvent');
-
-// The Admin form sends photos as `images`: an array of base64 data URLs
-// (one per photo) - NOT a singular `image` field. This uploads every
-// base64 entry in that array to Cloudinary in parallel and replaces it
-// with the real URL Cloudinary returns; an already-external URL (or a
-// singular legacy `image` field, kept for compatibility) passes through
-// untouched. Product.create/updateAsAdmin then derives `image` from
-// `images[0]` and `images_json` from the full array on their own, same
-// as before - this only fixes what actually lands in those fields.
-async function uploadIncomingImages(body) {
-  const out = { ...body };
-  if (Array.isArray(out.images)) {
-    out.images = await Promise.all(
-      out.images.map(img => isBase64DataUrl(img) ? uploadBase64ToCloudinary(img, 'kenlynk/products') : img)
-    );
-  }
-  if (isBase64DataUrl(out.image)) {
-    out.image = await uploadBase64ToCloudinary(out.image, 'kenlynk/products');
-  }
-  return out;
-}
 
 // The pricing breakdown (seller_price, price_commission,
 // price_delivery_fee) must never reach a buyer - they see only the
@@ -81,12 +59,7 @@ exports.create = async (req, res) => {
 
   // County always comes from the seller's own account, never the request
   // body - this is what makes delivery-fee calculation trustworthy.
-  // Product photos now go straight to Cloudinary instead of Render's own
-  // disk - req.files[0].buffer holds the file in memory (see upload.js),
-  // and the URL Cloudinary hands back is what gets saved as the image.
-  const image = req.files && req.files.length
-    ? await uploadBufferToCloudinary(req.files[0].buffer, 'kenlynk/products')
-    : (req.body.image || null);
+  const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : (req.body.image || null);
   const productId = await Product.create(req.user.id, { ...req.body, county: req.user.county, image });
   const product = await Product.findById(productId);
   return sendSuccess(res, 201, 'Product added.', { product: stripBreakdownForSeller(product) });
@@ -100,9 +73,7 @@ exports.getMine = async (req, res) => {
 
 // PUT /api/products/:id  (protected, multipart/form-data field "images" optional)
 exports.update = async (req, res) => {
-  const image = req.files && req.files.length
-    ? await uploadBufferToCloudinary(req.files[0].buffer, 'kenlynk/products')
-    : undefined;
+  const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : undefined;
   const updated = await Product.update(req.params.id, req.user.id, { ...req.body, ...(image ? { image } : {}) });
   if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
   const product = await Product.findById(req.params.id);
@@ -176,6 +147,22 @@ exports.getWholesale = async (req, res) => {
   return sendSuccess(res, 200, 'Wholesale products retrieved.', { products: items, total });
 };
 
+// Turns a MySQL space-separated datetime ("2026-08-22 10:00:00") into
+// something new Date() can only read one way - unambiguously UTC.
+// Without this, V8 (both in the browser and in this Node backend) falls
+// back to interpreting a space-separated datetime as LOCAL time, so the
+// browser and this server could each read the exact same stored value
+// as a different moment whenever the two run in different timezones.
+// The frontend's mapApiProduct() already does this exact conversion for
+// display (kanyagaStartAt/kanyagaEndAt, flashDealEndsAt) - this mirrors
+// it here so the backend's notion of "is this Kanyaga deal active right
+// now" can never disagree with what the Shop page already showed the
+// admin when they set it up.
+function parseMysqlDatetimeAsUtc(value) {
+  if (!value) return null;
+  return new Date(value.replace(' ', 'T') + 'Z');
+}
+
 // GET /api/products/kanyaga  (public) - every product currently in an
 // active Kanyaga campaign. Status (Active/Scheduled/Expired) is worked
 // out here by comparing kanyaga_start_at/kanyaga_end_at to right now,
@@ -189,8 +176,8 @@ exports.getKanyaga = async (req, res) => {
 
   const items = raw
     .map(p => {
-      const start = p.kanyaga_start_at ? new Date(p.kanyaga_start_at) : null;
-      const end = p.kanyaga_end_at ? new Date(p.kanyaga_end_at) : null;
+      const start = parseMysqlDatetimeAsUtc(p.kanyaga_start_at);
+      const end = parseMysqlDatetimeAsUtc(p.kanyaga_end_at);
       let kanyagaStatus;
       if (start && start > now) kanyagaStatus = 'scheduled';
       else if (end && end < now) kanyagaStatus = 'expired';
@@ -263,8 +250,7 @@ exports.adminCreate = async (req, res) => {
   if (!name || seller_price === undefined) return sendError(res, 400, 'name and seller_price are required.');
   if (Number(seller_price) <= 0) return sendError(res, 400, 'seller_price must be greater than 0.');
 
-  const body = await uploadIncomingImages(req.body);
-  const productId = await Product.create(null, { ...body, county: body.county || null });
+  const productId = await Product.create(null, { ...req.body, county: req.body.county || null });
   const product = await Product.findById(productId);
   return sendSuccess(res, 201, 'Product added.', { product });
 };
@@ -273,8 +259,7 @@ exports.adminCreate = async (req, res) => {
 // ones owned by a seller, bypassing the seller-ownership check that the
 // regular seller-facing update route enforces.
 exports.adminUpdate = async (req, res) => {
-  const body = await uploadIncomingImages(req.body);
-  const updated = await Product.updateAsAdmin(req.params.id, body);
+  const updated = await Product.updateAsAdmin(req.params.id, req.body);
   if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
   const product = await Product.findById(req.params.id);
   return sendSuccess(res, 200, 'Product updated.', { product });

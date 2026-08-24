@@ -39,11 +39,30 @@ function getUnitPriceForQty(item) {
 // "KANYAGA PRICE KES 11,999" but checkout still charged the regular
 // price. cart.js's getItems() already selects p.* so these columns
 // are already present on every cart item.
+// Turns a MySQL datetime into something new Date() can only read one
+// way - unambiguously UTC. mysql2 can hand this back either as a plain
+// space-separated string ("2026-08-22 10:00:00") or as an already-
+// parsed JS Date object depending on driver config, so this handles
+// both rather than assuming one. For the string case: without this, V8
+// falls back to interpreting a space-separated datetime as LOCAL
+// server time, so "is this Kanyaga deal active right now" could
+// silently disagree with what was actually set - a genuinely active
+// deal could be missed and checkout would fall back to charging the
+// regular price instead. Mirrors the identical fix in
+// productController.js's getKanyaga endpoint.
+function parseMysqlDatetimeAsUtc(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  return new Date(String(value).replace(' ', 'T') + 'Z');
+}
+
 function isKanyagaActiveNow(item) {
   if (!item.kanyaga_price) return false;
   const now = new Date();
-  if (item.kanyaga_start_at && new Date(item.kanyaga_start_at) > now) return false;
-  if (item.kanyaga_end_at && new Date(item.kanyaga_end_at) < now) return false;
+  const start = parseMysqlDatetimeAsUtc(item.kanyaga_start_at);
+  const end = parseMysqlDatetimeAsUtc(item.kanyaga_end_at);
+  if (start && start > now) return false;
+  if (end && end < now) return false;
   return true;
 }
 

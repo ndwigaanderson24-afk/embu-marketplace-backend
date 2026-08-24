@@ -22,6 +22,7 @@ router.post  ('/products/:id/variants',            protect, requireActiveSeller,
 router.put   ('/products/:id/variants/:vid',       protect, requireActiveSeller, wrap(vc.updateVariant));
 router.delete('/products/:id/variants/:vid',       protect, requireActiveSeller, wrap(vc.deleteVariant));
 router.patch ('/products/:id/variants/:vid/stock', protect, requireActiveSeller, wrap(vc.updateStock));
+router.patch ('/products/:id/variants/:vid/price', protect, requireActiveSeller, wrap(vc.updatePrice));
 
 // ── Admin ────────────────────────────────────────────────────────────────
 // Inventory overview
@@ -35,5 +36,6 @@ router.get   ('/admin/variants/:vid',               protect, requireAdmin, wrap(
 router.put   ('/admin/variants/:vid',               protect, requireAdmin, wrap(vc.adminUpdateVariant));
 router.delete('/admin/variants/:vid',               protect, requireAdmin, wrap(vc.adminDeleteVariant));
 router.patch ('/admin/variants/:vid/stock',         protect, requireAdmin, wrap(vc.adminUpdateStock));
+router.patch ('/admin/variants/:vid/price',         protect, requireAdmin, wrap(vc.adminUpdatePrice));
 
 module.exports = router;

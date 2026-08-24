@@ -8,6 +8,7 @@
 // below for why. Every variant always uses its parent product's price.
 
 const pool = require('../db');
+const { computeFinalPrice } = require('../helpers');
 
 const ProductVariant = {
 
@@ -64,22 +65,37 @@ const ProductVariant = {
    * upsertVariant — creates or updates a single variant row, then
    * replaces its option values entirely.
    *
-   * Variants deliberately have NO price of their own - a colour/size
-   * always uses the parent product's price. Having both a product price
-   * and a per-variant price was confusing sellers about which one to
-   * fill in, so this was removed entirely rather than made optional -
-   * every price/seller_price/etc column is explicitly cleared to NULL
-   * on every save, so cart.js's COALESCE(v.price, p.price) always falls
-   * through to the product's price, with nothing left over from before
-   * this change.
+   * Per-variant pricing (deliberately removed earlier, then explicitly
+   * asked to come back so different sizes/options can have genuinely
+   * different prices - see Master Product System Upgrade spec). A
+   * variant's own seller_price is optional: when provided, its final
+   * buyer-facing price is computed through the exact same
+   * computeFinalPrice() formula the parent product uses (commission
+   * bracket off the variant's own price, delivery fee off the PARENT
+   * product's weight, since a variant has no weight of its own). When
+   * not provided, price/seller_price are explicitly cleared to NULL, so
+   * cart.js's COALESCE(v.price, p.price) falls through to the parent
+   * product's price - letting some variants of a product carry their
+   * own price while others simply inherit the base price.
    *
    * @param {number}   productId
    * @param {object}   variantData  { id?, sku?, stock, images_json?,
-   *                                  is_active?, options: [{attribute_id, value}] }
+   *                                  is_active?, seller_price?, original_price?,
+   *                                  options: [{attribute_id, value}] }
    * @returns {number} variant id
    */
   async upsertVariant(productId, variantData) {
-    const { id, sku, stock, images_json, is_active = 1, options = [] } = variantData;
+    const { id, sku, stock, images_json, is_active = 1, seller_price, original_price, options = [] } = variantData;
+
+    // Price this variant using the parent product's weight (variants
+    // don't carry their own weight) - only when a real seller_price was
+    // actually given; otherwise leave every pricing column NULL so this
+    // variant inherits the parent's price via COALESCE at read time.
+    let priced = null;
+    if (seller_price !== undefined && seller_price !== null && seller_price !== '') {
+      const [[product]] = await pool.query('SELECT weight FROM products WHERE id = ?', [productId]);
+      priced = computeFinalPrice(seller_price, { weight: product ? product.weight : 1 });
+    }
 
     const conn = await pool.getConnection();
     try {
@@ -90,20 +106,22 @@ const ProductVariant = {
         // Update existing variant
         await conn.query(
           `UPDATE product_variants
-           SET sku = ?, price = NULL, seller_price = NULL, price_margin = NULL,
-               price_delivery_allocation = NULL, price_risk_allocation = NULL, original_price = NULL,
+           SET sku = ?, price = ?, seller_price = ?, original_price = ?,
                stock = ?, images_json = ?, is_active = ?
            WHERE id = ? AND product_id = ?`,
-          [sku || null, stock, images_json || null, is_active ? 1 : 0, id, productId]
+          [sku || null, priced ? priced.finalPrice : null, priced ? priced.sellerPrice : null,
+           (original_price !== undefined && original_price !== null && original_price !== '') ? original_price : null,
+           stock, images_json || null, is_active ? 1 : 0, id, productId]
         );
         variantId = id;
       } else {
-        // Insert new variant - price columns stay NULL, matching an
-        // update to an existing one.
+        // Insert new variant
         const [result] = await conn.query(
-          `INSERT INTO product_variants (product_id, sku, stock, images_json, is_active)
-           VALUES (?,?,?,?,?)`,
-          [productId, sku || null, stock, images_json || null, is_active ? 1 : 0]
+          `INSERT INTO product_variants (product_id, sku, price, seller_price, original_price, stock, images_json, is_active)
+           VALUES (?,?,?,?,?,?,?,?)`,
+          [productId, sku || null, priced ? priced.finalPrice : null, priced ? priced.sellerPrice : null,
+           (original_price !== undefined && original_price !== null && original_price !== '') ? original_price : null,
+           stock, images_json || null, is_active ? 1 : 0]
         );
         variantId = result.insertId;
       }
@@ -144,6 +162,45 @@ const ProductVariant = {
 
   async updateStock(variantId, stock) {
     await pool.query('UPDATE product_variants SET stock = ? WHERE id = ?', [stock, variantId]);
+  },
+
+  // Price-only update - deliberately separate from upsertVariant, which
+  // replaces a variant's full option set from whatever's in the request
+  // body. A price-only PATCH (like the existing stock PATCH) must never
+  // risk wiping out a variant's Colour/Size options just because they
+  // weren't included in this particular request.
+  //
+  // sellerPrice and originalPrice are each independently optional here -
+  // `undefined` means "this field wasn't part of this request, leave it
+  // alone" (e.g. the Original Price input firing its own PATCH with only
+  // original_price, without also blanking out an already-set seller
+  // price), while an explicit '' means "clear this field back to using
+  // the parent product's price."
+  async updatePrice(variantId, productId, sellerPrice, originalPrice) {
+    const sets = [];
+    const values = [];
+
+    if (sellerPrice !== undefined) {
+      if (sellerPrice === null || sellerPrice === '') {
+        sets.push('price = NULL', 'seller_price = NULL');
+      } else {
+        const [[product]] = await pool.query('SELECT weight FROM products WHERE id = ?', [productId]);
+        const priced = computeFinalPrice(sellerPrice, { weight: product ? product.weight : 1 });
+        sets.push('price = ?', 'seller_price = ?');
+        values.push(priced.finalPrice, priced.sellerPrice);
+      }
+    }
+    if (originalPrice !== undefined) {
+      sets.push('original_price = ?');
+      values.push((originalPrice === null || originalPrice === '') ? null : originalPrice);
+    }
+    if (!sets.length) return;
+
+    values.push(variantId, productId);
+    await pool.query(
+      `UPDATE product_variants SET ${sets.join(', ')} WHERE id = ? AND product_id = ?`,
+      values
+    );
   },
 
   async decrementStock(variantId, qty) {

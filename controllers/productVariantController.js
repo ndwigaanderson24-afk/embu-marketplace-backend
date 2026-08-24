@@ -54,7 +54,7 @@ exports.setAttributes = async (req, res) => {
 };
 
 // POST /api/products/:id/variants
-// Body: { sku?, stock, images_json?, options: [{attribute_id, value}] }
+// Body: { sku?, stock, seller_price?, original_price?, images_json?, options: [{attribute_id, value}] }
 exports.addVariant = async (req, res) => {
   const productId = req.params.id;
   if (!(await ownsProduct(productId, req.user.id)))
@@ -62,6 +62,8 @@ exports.addVariant = async (req, res) => {
 
   if (req.body.stock === undefined)
     return sendError(res, 400, 'stock is required.');
+  if (req.body.seller_price !== undefined && req.body.seller_price !== null && req.body.seller_price !== '' && Number(req.body.seller_price) <= 0)
+    return sendError(res, 400, 'seller_price must be greater than 0.');
 
   const variantId = await ProductVariant.upsertVariant(productId, { ...req.body });
   const variant   = await ProductVariant.findVariantById(variantId);
@@ -73,6 +75,8 @@ exports.updateVariant = async (req, res) => {
   const { id: productId, vid } = req.params;
   if (!(await ownsProduct(productId, req.user.id)))
     return sendError(res, 403, 'Product not found or not yours.');
+  if (req.body.seller_price !== undefined && req.body.seller_price !== null && req.body.seller_price !== '' && Number(req.body.seller_price) <= 0)
+    return sendError(res, 400, 'seller_price must be greater than 0.');
 
   await ProductVariant.upsertVariant(productId, { ...req.body, id: vid });
   const variant = await ProductVariant.findVariantById(vid);
@@ -102,6 +106,24 @@ exports.updateStock = async (req, res) => {
   return sendSuccess(res, 200, 'Stock updated.', { stock });
 };
 
+// PATCH /api/products/:id/variants/:vid/price  body: { seller_price?, original_price? }
+// Deliberately separate from updateVariant (PUT), which replaces the
+// variant's full option set from the request body - this only ever
+// touches price columns, so it can't accidentally wipe out a variant's
+// Colour/Size options.
+exports.updatePrice = async (req, res) => {
+  const { id: productId, vid } = req.params;
+  if (!(await ownsProduct(productId, req.user.id)))
+    return sendError(res, 403, 'Product not found or not yours.');
+
+  const { seller_price, original_price } = req.body;
+  if (seller_price !== undefined && seller_price !== null && seller_price !== '' && Number(seller_price) <= 0)
+    return sendError(res, 400, 'seller_price must be greater than 0.');
+  await ProductVariant.updatePrice(vid, productId, seller_price, original_price);
+  const variant = await ProductVariant.findVariantById(vid);
+  return sendSuccess(res, 200, 'Price updated.', { variant });
+};
+
 // ── Admin ────────────────────────────────────────────────────────────────
 
 // GET /api/admin/variants/:vid
@@ -115,6 +137,8 @@ exports.adminGetVariant = async (req, res) => {
 exports.adminUpdateVariant = async (req, res) => {
   const variant = await ProductVariant.findVariantById(req.params.vid);
   if (!variant) return sendError(res, 404, 'Variant not found.');
+  if (req.body.seller_price !== undefined && req.body.seller_price !== null && req.body.seller_price !== '' && Number(req.body.seller_price) <= 0)
+    return sendError(res, 400, 'seller_price must be greater than 0.');
   await ProductVariant.upsertVariant(variant.product_id, { ...req.body, id: req.params.vid });
   const updated = await ProductVariant.findVariantById(req.params.vid);
   return sendSuccess(res, 200, 'Variant updated.', { variant: updated });
@@ -135,6 +159,18 @@ exports.adminUpdateStock = async (req, res) => {
   if (!variant) return sendError(res, 404, 'Variant not found.');
   await ProductVariant.updateStock(req.params.vid, stock);
   return sendSuccess(res, 200, 'Stock updated.', { stock });
+};
+
+// PATCH /api/admin/variants/:vid/price  body: { seller_price?, original_price? }
+exports.adminUpdatePrice = async (req, res) => {
+  const variant = await ProductVariant.findVariantById(req.params.vid);
+  if (!variant) return sendError(res, 404, 'Variant not found.');
+  const { seller_price, original_price } = req.body;
+  if (seller_price !== undefined && seller_price !== null && seller_price !== '' && Number(seller_price) <= 0)
+    return sendError(res, 400, 'seller_price must be greater than 0.');
+  await ProductVariant.updatePrice(req.params.vid, variant.product_id, seller_price, original_price);
+  const updated = await ProductVariant.findVariantById(req.params.vid);
+  return sendSuccess(res, 200, 'Price updated.', { variant: updated });
 };
 
 // GET /api/admin/variants/low-stock?threshold=5
@@ -169,6 +205,8 @@ exports.adminAddVariant = async (req, res) => {
   if (!product) return sendError(res, 404, 'Product not found.');
   if (req.body.stock === undefined)
     return sendError(res, 400, 'stock is required.');
+  if (req.body.seller_price !== undefined && req.body.seller_price !== null && req.body.seller_price !== '' && Number(req.body.seller_price) <= 0)
+    return sendError(res, 400, 'seller_price must be greater than 0.');
   const variantId = await ProductVariant.upsertVariant(req.params.id, { ...req.body });
   const variant   = await ProductVariant.findVariantById(variantId);
   return sendSuccess(res, 201, 'Variant added.', { variant });

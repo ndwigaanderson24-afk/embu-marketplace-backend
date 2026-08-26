@@ -29,16 +29,27 @@ const ProductVariant = {
 
   // ── Attributes (dimension names for one product) ────────────────────
 
+  // names can be either plain strings (backward compatible - every
+  // existing caller that just sends ['Colour','Size'] keeps working
+  // exactly as before, defaulting to single-select) or objects
+  // {name, selection_type} for the new multi-select feature. A group
+  // marked 'multiple' lets a buyer pick more than one value at once
+  // (e.g. several sizes) and add them all as separate cart lines in one
+  // action - 'single' (the default) behaves exactly as it always has.
   async setAttributes(productId, names) {
-    // Replace all attribute rows for this product atomically.
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
       await conn.query('DELETE FROM product_variant_attributes WHERE product_id = ?', [productId]);
       if (names && names.length) {
-        const rows = names.map((n, i) => [productId, n.trim(), i]);
+        const rows = names.map((n, i) => {
+          const isObj = typeof n === 'object' && n !== null;
+          const name = (isObj ? n.name : n).trim();
+          const selectionType = (isObj && n.selection_type === 'multiple') ? 'multiple' : 'single';
+          return [productId, name, i, selectionType];
+        });
         await conn.query(
-          'INSERT INTO product_variant_attributes (product_id, name, position) VALUES ?',
+          'INSERT INTO product_variant_attributes (product_id, name, position, selection_type) VALUES ?',
           [rows]
         );
       }

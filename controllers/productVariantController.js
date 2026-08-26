@@ -33,12 +33,15 @@ exports.getVariants = async (req, res) => {
 
 // ── Seller ───────────────────────────────────────────────────────────────
 
-// PUT /api/products/:id/attributes   body: { attributes: ['Colour','Size'] }
+// PUT /api/products/:id/attributes
+// body: { attributes: ['Colour','Size'] } (plain strings, all default to
+// single-select) or { attributes: [{name:'Colour',selection_type:'single'},
+// {name:'Size',selection_type:'multiple'}] } for mixed selection types.
 // Replaces the full attribute list for this product and enables has_variants.
 exports.setAttributes = async (req, res) => {
   const { attributes } = req.body;
   if (!Array.isArray(attributes) || !attributes.length)
-    return sendError(res, 400, 'attributes must be a non-empty array of strings.');
+    return sendError(res, 400, 'attributes must be a non-empty array.');
 
   const productId = req.params.id;
   if (!(await ownsProduct(productId, req.user.id)))

@@ -96,7 +96,7 @@ const ProductVariant = {
    * @returns {number} variant id
    */
   async upsertVariant(productId, variantData) {
-    const { id, sku, stock, images_json, is_active = 1, seller_price, original_price, options = [] } = variantData;
+    const { id, sku, stock, images_json, is_active = 1, seller_price, original_price, kanyaga_price, options = [] } = variantData;
 
     // Price this variant using the parent product's weight (variants
     // don't carry their own weight) - only when a real seller_price was
@@ -108,6 +108,16 @@ const ProductVariant = {
       priced = computeFinalPrice(seller_price, { weight: product ? product.weight : 1 });
     }
 
+    // A variant's own Kanyaga price - deliberately just a flat KES
+    // amount, not run through the pricing formula, matching the exact
+    // same convention as the product-level Kanyaga price it can
+    // override. Left blank/undefined means "use the product's one flat
+    // Kanyaga price for this variant too", same COALESCE fallback used
+    // for seller_price/price above.
+    const kanyagaPriceValue = (kanyaga_price !== undefined && kanyaga_price !== null && kanyaga_price !== '')
+      ? Number(kanyaga_price)
+      : null;
+
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -117,21 +127,23 @@ const ProductVariant = {
         // Update existing variant
         await conn.query(
           `UPDATE product_variants
-           SET sku = ?, price = ?, seller_price = ?, original_price = ?,
+           SET sku = ?, price = ?, seller_price = ?, original_price = ?, kanyaga_price = ?,
                stock = ?, images_json = ?, is_active = ?
            WHERE id = ? AND product_id = ?`,
           [sku || null, priced ? priced.finalPrice : null, priced ? priced.sellerPrice : null,
            (original_price !== undefined && original_price !== null && original_price !== '') ? original_price : null,
+           kanyagaPriceValue,
            stock, images_json || null, is_active ? 1 : 0, id, productId]
         );
         variantId = id;
       } else {
         // Insert new variant
         const [result] = await conn.query(
-          `INSERT INTO product_variants (product_id, sku, price, seller_price, original_price, stock, images_json, is_active)
-           VALUES (?,?,?,?,?,?,?,?)`,
+          `INSERT INTO product_variants (product_id, sku, price, seller_price, original_price, kanyaga_price, stock, images_json, is_active)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
           [productId, sku || null, priced ? priced.finalPrice : null, priced ? priced.sellerPrice : null,
            (original_price !== undefined && original_price !== null && original_price !== '') ? original_price : null,
+           kanyagaPriceValue,
            stock, images_json || null, is_active ? 1 : 0]
         );
         variantId = result.insertId;

@@ -67,6 +67,8 @@ exports.addVariant = async (req, res) => {
     return sendError(res, 400, 'stock is required.');
   if (req.body.seller_price !== undefined && req.body.seller_price !== null && req.body.seller_price !== '' && Number(req.body.seller_price) <= 0)
     return sendError(res, 400, 'seller_price must be greater than 0.');
+  if (req.body.kanyaga_price !== undefined && req.body.kanyaga_price !== null && req.body.kanyaga_price !== '' && Number(req.body.kanyaga_price) <= 0)
+    return sendError(res, 400, 'kanyaga_price must be greater than 0.');
 
   const variantId = await ProductVariant.upsertVariant(productId, { ...req.body });
   const variant   = await ProductVariant.findVariantById(variantId);
@@ -80,6 +82,8 @@ exports.updateVariant = async (req, res) => {
     return sendError(res, 403, 'Product not found or not yours.');
   if (req.body.seller_price !== undefined && req.body.seller_price !== null && req.body.seller_price !== '' && Number(req.body.seller_price) <= 0)
     return sendError(res, 400, 'seller_price must be greater than 0.');
+  if (req.body.kanyaga_price !== undefined && req.body.kanyaga_price !== null && req.body.kanyaga_price !== '' && Number(req.body.kanyaga_price) <= 0)
+    return sendError(res, 400, 'kanyaga_price must be greater than 0.');
 
   await ProductVariant.upsertVariant(productId, { ...req.body, id: vid });
   const variant = await ProductVariant.findVariantById(vid);
@@ -142,6 +146,8 @@ exports.adminUpdateVariant = async (req, res) => {
   if (!variant) return sendError(res, 404, 'Variant not found.');
   if (req.body.seller_price !== undefined && req.body.seller_price !== null && req.body.seller_price !== '' && Number(req.body.seller_price) <= 0)
     return sendError(res, 400, 'seller_price must be greater than 0.');
+  if (req.body.kanyaga_price !== undefined && req.body.kanyaga_price !== null && req.body.kanyaga_price !== '' && Number(req.body.kanyaga_price) <= 0)
+    return sendError(res, 400, 'kanyaga_price must be greater than 0.');
   await ProductVariant.upsertVariant(variant.product_id, { ...req.body, id: req.params.vid });
   const updated = await ProductVariant.findVariantById(req.params.vid);
   return sendSuccess(res, 200, 'Variant updated.', { variant: updated });
@@ -210,6 +216,8 @@ exports.adminAddVariant = async (req, res) => {
     return sendError(res, 400, 'stock is required.');
   if (req.body.seller_price !== undefined && req.body.seller_price !== null && req.body.seller_price !== '' && Number(req.body.seller_price) <= 0)
     return sendError(res, 400, 'seller_price must be greater than 0.');
+  if (req.body.kanyaga_price !== undefined && req.body.kanyaga_price !== null && req.body.kanyaga_price !== '' && Number(req.body.kanyaga_price) <= 0)
+    return sendError(res, 400, 'kanyaga_price must be greater than 0.');
   const variantId = await ProductVariant.upsertVariant(req.params.id, { ...req.body });
   const variant   = await ProductVariant.findVariantById(variantId);
   return sendSuccess(res, 201, 'Variant added.', { variant });

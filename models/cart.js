@@ -38,6 +38,14 @@ const Cart = {
   // are no longer selected here at all - order.js computes them live
   // from price/weight using the new fixed-bracket formula, so there's
   // nothing stored on the cart-item level to coalesce for them.
+  //
+  // kanyaga_price is coalesced the same way - a variant can carry its
+  // own Kanyaga price (e.g. a specific size priced differently during
+  // the campaign), falling back to the product's one flat Kanyaga price
+  // when that variant doesn't have its own. The Kanyaga campaign's
+  // start/end window itself stays product-level only (p.* already
+  // carries kanyaga_start_at/kanyaga_end_at/kanyaga_campaign) - only the
+  // price can differ per variant, not whether the deal is running.
   async getItems(owner) {
     const { clause, value } = ownerClause(owner);
     const [rows] = await pool.query(
@@ -46,6 +54,7 @@ const Cart = {
               COALESCE(v.price, p.price) AS price,
               COALESCE(v.stock, p.stock) AS stock,
               COALESCE(v.seller_price, p.seller_price) AS seller_price,
+              COALESCE(v.kanyaga_price, p.kanyaga_price) AS kanyaga_price,
               v.sku AS variant_sku,
               v.images_json AS variant_images_json
        FROM cart_items c

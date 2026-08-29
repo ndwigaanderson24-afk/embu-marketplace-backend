@@ -1,7 +1,7 @@
 // models/product.js
 
 const pool = require('../db');
-const { computeFinalPrice } = require('../helpers');
+const { computeFinalPrice, SELLER_PLAN_PRODUCT_LIMITS } = require('../helpers');
 const { uploadAnyToCloudinary, needsMigration } = require('../cloudinaryUpload');
 
 // Shared by create/update - runs the actual calculation in one place so
@@ -126,6 +126,42 @@ const Product = {
     }
     if (out.has_variants !== undefined) out.has_variants = !!out.has_variants ? 1 : 0;
     return out;
+  },
+
+  // Whether a seller can add one more product right now, based on their
+  // EFFECTIVE plan (see SELLER_PLAN_PRODUCT_LIMITS comment in helpers.js)
+  // and how many products they already have. Deliberately a separate
+  // method rather than baked into create() itself, so the controller can
+  // check it first and return a clean, specific error message - this was
+  // the one confirmed real gap in the whole plan system: a Free seller
+  // could list unlimited products despite the documented 20-product cap,
+  // since nothing anywhere actually enforced it before now. Counts every
+  // product the seller has regardless of active/inactive status, so
+  // hiding old listings can't be used to sneak past the cap.
+  async checkProductLimit(sellerId) {
+    const [[planRow]] = await pool.query(
+      `SELECT
+         CASE
+           WHEN subscription_status = 'active' AND subscription_end >= CURDATE()
+             THEN COALESCE(seller_plan, 'free')
+           ELSE 'free'
+         END AS effective_plan
+       FROM users WHERE id = ?`,
+      [sellerId]
+    );
+    const effectivePlan = (planRow && SELLER_PLAN_PRODUCT_LIMITS[planRow.effective_plan] !== undefined)
+      ? planRow.effective_plan
+      : 'free';
+    const limit = SELLER_PLAN_PRODUCT_LIMITS[effectivePlan];
+
+    const [[{ count }]] = await pool.query('SELECT COUNT(*) AS count FROM products WHERE seller_id = ?', [sellerId]);
+
+    return {
+      allowed: count < limit,
+      current: count,
+      limit: limit === Infinity ? null : limit,
+      effectivePlan
+    };
   },
 
   async create(sellerId, data) {

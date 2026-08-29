@@ -69,6 +69,15 @@ function getSubscriptionMonths(planKey) {
   const plan = SUBSCRIPTION_PLANS[planKey];
   return plan ? plan.months : null;
 }
+// ---------- Seller plan product limits ----------
+// How many products a seller can have listed at once, keyed by their
+// EFFECTIVE plan - "effective" meaning a paid plan only counts while
+// subscription_status is genuinely 'active' and subscription_end
+// hasn't passed; a seller whose Silver/Gold subscription lapsed is
+// treated as free again for this check, same as the visibility rule
+// already used elsewhere (findPublic etc.) so the two can never
+// disagree about what plan a seller is actually on right now.
+const SELLER_PLAN_PRODUCT_LIMITS = { free: 20, silver: 100, gold: Infinity };
 // ---------- Referral commission ----------
 const REFERRAL_COMMISSION_RATE = Number(process.env.REFERRAL_COMMISSION_RATE) || 0.10;
 const REFERRAL_MIN_ORDER_TOTAL = Number(process.env.REFERRAL_MIN_ORDER_TOTAL) || 10000;
@@ -150,6 +159,7 @@ module.exports = {
   calculateDeliveryBaseFee, calculateHomeDeliveryFee, calculateDeliveryFee,
   PLATFORM_DEFAULT_COUNTY,
   SUBSCRIPTION_PLANS, getSubscriptionPrice, getSubscriptionMonths,
+  SELLER_PLAN_PRODUCT_LIMITS,
   REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL,
   addMonths, todayStr,
   computeFinalPrice, computeCommission, computeDeliveryFee

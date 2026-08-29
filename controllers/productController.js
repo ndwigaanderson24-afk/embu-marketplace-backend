@@ -57,6 +57,17 @@ exports.create = async (req, res) => {
   if (!name || seller_price === undefined) return sendError(res, 400, 'name and seller_price are required.');
   if (Number(seller_price) <= 0) return sendError(res, 400, 'seller_price must be greater than 0.');
 
+  // The one confirmed real gap in the plan system - a Free seller could
+  // list unlimited products despite the documented cap, since nothing
+  // actually checked it before now. Admin's own product creation
+  // (adminCreate below) deliberately never calls this - admin access
+  // stays free and no-friction, same as everywhere else in the app.
+  const limitCheck = await Product.checkProductLimit(req.user.id);
+  if (!limitCheck.allowed) {
+    const planLabel = limitCheck.effectivePlan.charAt(0).toUpperCase() + limitCheck.effectivePlan.slice(1);
+    return sendError(res, 403, `Your ${planLabel} plan allows up to ${limitCheck.limit} products, and you've already listed ${limitCheck.current}. Upgrade your plan to add more.`);
+  }
+
   // County always comes from the seller's own account, never the request
   // body - this is what makes delivery-fee calculation trustworthy.
   const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : (req.body.image || null);

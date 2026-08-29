@@ -60,3 +60,23 @@ exports.updateStatus = async (req, res) => {
   if (!updated) return sendError(res, 404, 'Quote request not found or already closed.');
   return sendSuccess(res, 200, 'Status updated.', {});
 };
+
+// GET /api/admin/wholesale-quotes/mine - bulk quote requests on
+// products added directly by admin (no individual seller attached).
+// Separate from the seller-facing getMine above since these rows have
+// seller_id IS NULL, not a real seller id to filter by.
+exports.adminGetMine = async (req, res) => {
+  const quotes = await WholesaleQuote.findForAdminOwned();
+  return sendSuccess(res, 200, 'Quote requests retrieved.', { quotes });
+};
+
+// PUT /api/admin/wholesale-quotes/:id/status
+exports.adminUpdateStatus = async (req, res) => {
+  const { status } = req.body;
+  if (!['responded', 'closed'].includes(status)) {
+    return sendError(res, 400, "status must be 'responded' or 'closed'.");
+  }
+  const updated = await WholesaleQuote.adminUpdateStatus(req.params.id, status);
+  if (!updated) return sendError(res, 404, 'Quote request not found or already closed.');
+  return sendSuccess(res, 200, 'Status updated.', {});
+};

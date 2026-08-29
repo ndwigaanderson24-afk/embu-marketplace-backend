@@ -39,6 +39,32 @@ const WholesaleQuote = {
       [status, id, sellerId]
     );
     return result.affectedRows > 0;
+  },
+
+  // Quotes on products added directly by admin (seller_id IS NULL on
+  // the product, so the quote row inherits seller_id = NULL too) -
+  // findForSeller()'s `seller_id = ?` can never match these, since SQL
+  // never matches NULL with `=`, only `IS NULL`. Without this, any
+  // buyer asking about a bulk deal on an admin-added Wholesale product
+  // had their request go nowhere - not hidden from admin specifically,
+  // genuinely invisible to everyone.
+  async findForAdminOwned() {
+    const [rows] = await pool.query(
+      `SELECT wq.*, p.name AS product_name, p.image AS product_image
+       FROM wholesale_quote_requests wq
+       JOIN products p ON p.id = wq.product_id
+       WHERE wq.seller_id IS NULL
+       ORDER BY wq.created_at DESC`
+    );
+    return rows;
+  },
+
+  async adminUpdateStatus(id, status) {
+    const [result] = await pool.query(
+      "UPDATE wholesale_quote_requests SET status = ? WHERE id = ? AND seller_id IS NULL AND status IN ('pending','responded')",
+      [status, id]
+    );
+    return result.affectedRows > 0;
   }
 };
 

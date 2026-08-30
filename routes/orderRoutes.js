@@ -189,7 +189,7 @@ router.put('/:id/confirm-receipt', protect, wrap(async (req, res) => {
 router.get('/:id/history', protect, wrap(async (req, res) => {
   const order = await Order.findById(req.params.id);
   if (!order) return sendError(res, 404, 'Order not found.');
-  const isOwner = (order.seller_id === req.user.id) || (order.customer_user_id === req.user.id);
+  const isOwner = req.user && ((order.seller_id === req.user.id) || (order.customer_user_id === req.user.id));
   if (!isOwner && !req.isAdmin) return sendError(res, 403, 'You do not have access to this order.');
   const OrderStatus = require('../models/orderStatus');
   const history = await OrderStatus.getHistory(req.params.id);
@@ -199,12 +199,18 @@ router.get('/:id/history', protect, wrap(async (req, res) => {
 // ---------- Rider assignment (admin) ----------
 // Photo is optional and expected to already be a path/URL from your
 // upload endpoint - this route just links it to the order.
+//
+// Uses req.admin.id, NOT req.user.id - middleware/auth.js's protect()
+// never sets req.user for an admin token, only req.admin (see
+// req.isAdmin/req.admin assignment in protect()). This route is guarded
+// by requireAdmin, so req.user is always undefined here; req.user.id
+// would throw before ever reaching Order.assignRider().
 router.post('/:id/rider', protect, requireAdmin, wrap(async (req, res) => {
   const { name, phone, photo } = req.body;
   if (!name || !phone) return sendError(res, 400, 'Rider name and phone are required.');
   const order = await Order.findById(req.params.id);
   if (!order) return sendError(res, 404, 'Order not found.');
-  await Order.assignRider(req.params.id, { name, phone, photo }, { actorType: 'admin', actorId: req.user.id });
+  await Order.assignRider(req.params.id, { name, phone, photo }, { actorType: 'admin', actorId: req.admin.id });
   const { logActivity } = require('../controllers/adminController');
   await logActivity('admin', 'rider_assigned', `order ${req.params.id}: ${name}`);
   return sendSuccess(res, 200, `Rider ${name} assigned - linked to ${order.customer_name}'s delivery.`);
@@ -251,6 +257,14 @@ router.get('/admin/new-count', protect, requireAdmin, wrap(async (req, res) => {
 // the seller-facing PUT /:id/status above) - now goes through the same
 // state machine, and notifies the customer too (previously only a
 // seller-made change would notify - admin changes never did).
+//
+// Uses req.admin.id, NOT req.user.id - see the note on the rider route
+// above. This route is guarded by requireAdmin, and protect() never
+// populates req.user for an admin token, only req.admin (which carries
+// the JWT payload: id, role, email, name, isSuperAdmin - see
+// authController.js's adminLogin/signToken call). Reading req.user.id
+// here previously threw a TypeError on every admin status change,
+// including the Delivered -> Completed move this route exists to allow.
 router.put('/admin/:id/status', protect, requireAdmin, wrap(async (req, res) => {
   const { status, notes } = req.body;
   const order = await Order.findById(req.params.id);
@@ -258,7 +272,7 @@ router.put('/admin/:id/status', protect, requireAdmin, wrap(async (req, res) => 
 
   let result;
   try {
-    result = await Order.updateStatus(req.params.id, status, { actorType: 'admin', actorId: req.user.id, notes });
+    result = await Order.updateStatus(req.params.id, status, { actorType: 'admin', actorId: req.admin.id, notes });
   } catch (err) {
     return sendError(res, 400, err.message);
   }

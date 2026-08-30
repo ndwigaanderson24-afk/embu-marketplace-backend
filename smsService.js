@@ -24,6 +24,27 @@ const AT_API_KEY = process.env.AFRICASTALKING_API_KEY || '';
 // ever changes, this is the one place to update.
 const ADMIN_SMS_NUMBERS = ['+254713721775', '+254793072299', '+254112396258'];
 
+// Converts whatever format a Kenyan phone number is stored in elsewhere
+// in the app (local "07XXXXXXXX"/"01XXXXXXXX", or already-international
+// "254XXXXXXXXX"/"+254XXXXXXXXX") into the strict E.164 format Africa's
+// Talking requires ("+254XXXXXXXXX"). Every phone number in this
+// codebase (orders.customer_phone, users.phone, etc.) is stored in
+// local format - nothing converts it before this point, which is why
+// the very first OTP send silently failed even with a valid API key
+// and a verified Sandbox number: Africa's Talking rejected the raw
+// "0757413427" as an invalid recipient. Returns null (rather than
+// guessing) for anything that doesn't look like a real Kenyan number,
+// so a bad number fails loudly in the logs instead of silently trying
+// to send to something meaningless.
+function toE164Kenya(phone) {
+  if (!phone) return null;
+  const digits = String(phone).replace(/\D/g, '');
+  if (digits.startsWith('254') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('0') && digits.length === 10) return `+254${digits.slice(1)}`;
+  if ((digits.startsWith('7') || digits.startsWith('1')) && digits.length === 9) return `+254${digits}`;
+  return null;
+}
+
 let atSms = null;
 function getSmsClient() {
   if (!AT_API_KEY) return null;
@@ -50,20 +71,22 @@ async function sendAdminOrderSms(message) {
 
 // Generic single-recipient send - used for the delivery OTP, and
 // reusable for any future customer-facing SMS (status updates, etc).
-// `phone` should already be in the same format the rest of the app
-// stores customer phone numbers in; Africa's Talking expects E.164
-// (+254...) - if your stored numbers are local format (07...), convert
-// before calling this, the same way checkout/M-Pesa already do.
+// `phone` can be in whatever format the rest of the app already stores
+// it in (local "07..." is the norm here) - toE164Kenya() above converts
+// it before this ever reaches Africa's Talking, which requires strict
+// E.164. A number that doesn't convert cleanly is logged and skipped
+// rather than sent malformed and silently swallowed by the provider.
 async function sendCustomerSms(phone, message) {
   const sms = getSmsClient();
-  if (!sms || !phone) {
-    console.log(`SMS skipped (AFRICASTALKING_API_KEY not set or no phone) to ${phone}:`, message);
+  const e164Phone = toE164Kenya(phone);
+  if (!sms || !e164Phone) {
+    console.log(`SMS skipped (no API key, or "${phone}" isn't a recognizable Kenyan number) - message was:`, message);
     return;
   }
   try {
-    await sms.send({ to: [phone], message });
+    await sms.send({ to: [e164Phone], message });
   } catch (err) {
-    console.error(`Failed to send customer SMS to ${phone}:`, err.message);
+    console.error(`Failed to send customer SMS to ${e164Phone}:`, err.message);
   }
 }
 

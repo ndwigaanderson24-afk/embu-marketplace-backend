@@ -1,5 +1,7 @@
 // controllers/productRequestController.js
 const { ProductRequest, RequestOffer } = require('../models/productRequest');
+const Product = require('../models/product');
+const Cart = require('../models/cart');
 const { sendSuccess, sendError } = require('../helpers');
 
 // Buyer submits a request - works for guests too, matched later by
@@ -67,6 +69,50 @@ exports.declineOffer = async (req, res) => {
   const pendingCount = await RequestOffer.findPendingCountForRequest(request.id);
   await ProductRequest.updateStatus(request.id, pendingCount > 0 ? 'seller_found' : 'shared_with_sellers', { approved_offer_id: null });
   return sendSuccess(res, 200, "Offer declined. We'll look for another seller.", {});
+};
+
+// Buyer accepting an admin-approved offer - the "Stage 2" piece that
+// was never actually built (only declineOffer existed). Creates a
+// real product for this specific fulfillment - not publicly browsable
+// (status: 'request_fulfillment' keeps it out of Product.findPublic's
+// results automatically, same as any other non-'active' product) but
+// otherwise completely real: has its own seller, its own price run
+// through the exact same pricing formula every product uses, and adds
+// straight to the buyer's cart. From here the buyer checks out through
+// the site's existing, already-proven Cart -> IntaSend payment flow
+// unchanged - which is what makes order tracking, reviews, and seller
+// earnings all work with zero special-casing, instead of needing a
+// parallel system just for requests. This only creates the product and
+// stages it in the cart - the request's own "Order Created" status
+// still needs a real order to exist first, which only happens once the
+// buyer actually completes checkout.
+exports.acceptOffer = async (req, res) => {
+  const request = await ProductRequest.findById(req.params.id);
+  if (!request) return sendError(res, 404, 'Request not found.');
+  if (request.status !== 'awaiting_buyer_confirmation') {
+    return sendError(res, 400, 'This request is not awaiting your confirmation.');
+  }
+  const offer = await RequestOffer.findById(request.approved_offer_id);
+  if (!offer) return sendError(res, 404, 'Approved offer not found.');
+
+  const productId = await Product.create(offer.seller_id, {
+    name: request.product_name,
+    description: request.description,
+    category: request.category,
+    seller_price: offer.price,
+    image: request.image || undefined,
+    stock: offer.available_qty,
+    weight: 1,
+    status: 'request_fulfillment'
+  });
+
+  const owner = req.user ? { userId: req.user.id } : { sessionId: req.body.session_id };
+  if (!owner.userId && !owner.sessionId) return sendError(res, 400, 'session_id is required to add this to a guest cart.');
+  await Cart.addItem(owner, productId, request.quantity || 1);
+
+  await ProductRequest.setProductId(request.id, productId);
+
+  return sendSuccess(res, 200, "Offer accepted! We've added it to your cart - complete checkout to place the order.", { productId });
 };
 
 // ── Admin ────────────────────────────────────────────────────────────

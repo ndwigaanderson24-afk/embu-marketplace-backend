@@ -58,6 +58,14 @@ const ProductRequest = {
     if ('order_id' in extra) { fields.push('order_id = ?'); values.push(extra.order_id); }
     values.push(id);
     await pool.query(`UPDATE product_requests SET ${fields.join(', ')} WHERE id = ?`, values);
+  },
+
+  // Links the hidden product created at accept-offer time back to this
+  // request, without needing a new status value - the request stays at
+  // 'awaiting_buyer_confirmation' until a real order actually exists
+  // (see acceptOffer in the controller for why).
+  async setProductId(id, productId) {
+    await pool.query('UPDATE product_requests SET product_id = ? WHERE id = ?', [productId, id]);
   }
 };
 

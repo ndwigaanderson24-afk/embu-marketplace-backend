@@ -12,6 +12,7 @@ router.get('/mine', optionalAuth, wrap(rc.getMyRequests));
 router.get('/shared', protect, requireActiveSeller, wrap(rc.getSharedRequests));
 router.post('/:id/offers', protect, requireActiveSeller, wrap(rc.submitOffer));
 router.post('/:id/decline', optionalAuth, wrap(rc.declineOffer));
+router.post('/:id/accept', optionalAuth, wrap(rc.acceptOffer));
 
 // Admin (mounted at /api/admin/requests)
 const adminRouter = express.Router();

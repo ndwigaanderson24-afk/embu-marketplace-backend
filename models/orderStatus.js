@@ -9,22 +9,26 @@ const pool = require('../db');
 
 const STATUSES = [
   'Pending Payment', 'Paid', 'Processing', 'Ready for Delivery',
-  'Out for Delivery', 'Delivered', 'Completed', 'Cancelled', 'Refunded'
+  'Out for Delivery', 'Delivered', 'Awaiting Admin Confirmation',
+  'Completed', 'Cancelled', 'Refunded'
 ];
 
 // Maps each status to the statuses it's allowed to move to next, and
 // which actor types are allowed to make that specific move.
-//   system   - the payment webhook, automatic only
+//   system   - the payment webhook, or an automatic follow-on move
+//              (e.g. Delivered -> Awaiting Admin Confirmation once OTP
+//              verification succeeds), never a person acting directly
 //   seller   - the order's own seller
 //   admin    - any admin account
 //   customer - the order's own customer
 //
-// Cancelled/Refunded are reachable from several points (a seller or
-// admin may need to cancel before shipping; only admin can refund,
-// since that's a real financial action). Completed is ONLY reachable
-// from Delivered, and only the customer can make that specific move -
-// this is what makes "can't complete before delivered" actually
-// enforced, not just documented.
+// Completed is ONLY reachable from Awaiting Admin Confirmation, and
+// ONLY admin can make that specific move - this is the "admin has
+// final say" rule: a customer confirming receipt, or a seller/admin
+// verifying the delivery OTP, moves the order forward but never
+// completes it by itself. See order.js's verifyDeliveryOtp() for how
+// Delivered -> Awaiting Admin Confirmation actually gets triggered
+// (chained automatically once the OTP check passes).
 const TRANSITIONS = {
   'Pending Payment': {
     'Paid': ['system'],
@@ -45,11 +49,25 @@ const TRANSITIONS = {
     'Refunded': ['admin']
   },
   'Out for Delivery': {
-    'Delivered': ['seller', 'admin'],
+    // Reachable directly by seller/admin (manual override, e.g. no SMS
+    // delivery in the area) as well as by the system once OTP
+    // verification passes - see order.js's verifyDeliveryOtp().
+    'Delivered': ['seller', 'admin', 'system'],
     'Refunded': ['admin']
   },
   'Delivered': {
-    'Completed': ['customer', 'admin'], // admin can also confirm on a customer's behalf if they call in
+    // Normally chained automatically (actorType 'system') the instant
+    // OTP verification succeeds - see order.js's verifyDeliveryOtp().
+    // seller/admin can still push it through manually as a fallback.
+    'Awaiting Admin Confirmation': ['system', 'seller', 'admin'],
+    'Refunded': ['admin']
+  },
+  'Awaiting Admin Confirmation': {
+    // The one and only path to Completed - admin only. A customer
+    // confirming receipt (order.js's markCustomerConfirmed) does NOT
+    // transition status at all; it only stamps customer_confirmed_at
+    // for admin to see in their review panel.
+    'Completed': ['admin'],
     'Refunded': ['admin']
   },
   'Completed': {
@@ -73,8 +91,8 @@ const OrderStatus = {
   // is actually legal for this actor before touching anything, records
   // it in order_status_history either way (rejected attempts are NOT
   // recorded - only real changes), and stamps delivered_at/completed_at/
-  // paid_at so those timestamps are always trustworthy without having
-  // to trust the status string alone.
+  // paid_at/awaiting_confirmation_at so those timestamps are always
+  // trustworthy without having to trust the status string alone.
   async transition(orderId, toStatus, { actorType, actorId = null, notes = null } = {}) {
     if (!STATUSES.includes(toStatus)) {
       throw new Error(`"${toStatus}" is not a real order status.`);
@@ -92,6 +110,7 @@ const OrderStatus = {
     const extraSets = [];
     const extraParams = [];
     if (toStatus === 'Delivered') { extraSets.push('delivered_at = NOW()'); }
+    if (toStatus === 'Awaiting Admin Confirmation') { extraSets.push('awaiting_confirmation_at = NOW()'); }
     if (toStatus === 'Completed') { extraSets.push('completed_at = NOW()'); }
     if (toStatus === 'Paid') { extraSets.push('paid_at = NOW()'); }
 

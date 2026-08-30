@@ -6,7 +6,7 @@
 const pool = require('../db');
 const Notification = require('./notification');
 const AdminNotification = require('./adminNotification');
-const { sendAdminOrderSms } = require('../smsService');
+const { sendAdminOrderSms, sendCustomerSms } = require('../smsService');
 const {
   generateOrderNumber, generateTrackingNumber, calculateDeliveryFee,
   PLATFORM_DEFAULT_COUNTY, REFERRAL_COMMISSION_RATE, REFERRAL_MIN_ORDER_TOTAL,
@@ -400,6 +400,69 @@ const Order = {
       // that allows moving to "Out for Delivery" yet (e.g. already
       // further along) - don't let that block assigning the rider.
     }
+  },
+
+  // Generates a fresh 6-digit delivery OTP, texts it to the customer,
+  // and stores it against the order - called when a seller/admin marks
+  // an order "Out for Delivery" (or any time before, e.g. re-sending a
+  // code the customer says they never got). Does NOT transition status
+  // itself; it's independent of where the order currently sits, so a
+  // seller can regenerate/resend without accidentally forcing a status
+  // change. Overwrites any previous code - only the latest one sent is
+  // ever valid, so an old SMS lying around can't be replayed.
+  async generateDeliveryOtp(id) {
+    const order = await this.findById(id);
+    if (!order) throw new Error('Order not found.');
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    await pool.query(
+      'UPDATE orders SET delivery_otp = ?, otp_generated_at = NOW(), otp_verified_at = NULL WHERE id = ?',
+      [code, id]
+    );
+
+    await sendCustomerSms(
+      order.customer_phone,
+      `Your KenLynk delivery verification code for order #${order.order_number} is ${code}. Give this to your rider only once you've received your order.`
+    );
+
+    return { sent: true };
+  },
+
+  // Called by the seller/admin app when the rider reports the code the
+  // customer read out to them. On a match: stamps otp_verified_at,
+  // transitions Out for Delivery -> Delivered, then immediately chains
+  // Delivered -> Awaiting Admin Confirmation (actorType 'system', since
+  // this second hop isn't really a new decision by the person entering
+  // the code - it's the automatic consequence of a verified delivery,
+  // per orderStatus.js's TRANSITIONS). Throws on a wrong/missing code
+  // without touching status at all, so a mistyped code never silently
+  // half-completes a delivery.
+  async verifyDeliveryOtp(id, code, actor = { actorType: 'admin' }) {
+    const order = await this.findById(id);
+    if (!order) throw new Error('Order not found.');
+    if (!order.delivery_otp) throw new Error('No delivery code has been generated for this order yet.');
+    if (String(code).trim() !== String(order.delivery_otp)) throw new Error('That code does not match. Please check with the customer and try again.');
+
+    await pool.query('UPDATE orders SET otp_verified_at = NOW() WHERE id = ?', [id]);
+
+    const OrderStatus = require('./orderStatus');
+    const toDelivered = await OrderStatus.transition(id, 'Delivered', { ...actor, notes: 'Delivery OTP verified' });
+    const toAwaiting = await OrderStatus.transition(id, 'Awaiting Admin Confirmation', { actorType: 'system', notes: 'Auto-advanced after OTP verification' });
+
+    return { deliveredResult: toDelivered, awaitingResult: toAwaiting };
+  },
+
+  // Customer confirming they received their order - this does NOT
+  // complete the order (only admin can do that, from Awaiting Admin
+  // Confirmation - see orderStatus.js). It only stamps a timestamp the
+  // admin sees in their review panel alongside "rider marked delivered"
+  // and "OTP verified", as one more signal supporting the admin's own
+  // final decision.
+  async markCustomerConfirmed(id, userId) {
+    const order = await this.findById(id);
+    if (!order || order.customer_user_id !== userId) return null;
+    await pool.query('UPDATE orders SET customer_confirmed_at = NOW() WHERE id = ?', [id]);
+    return { confirmed: true };
   },
 
   // Delivery rating is intentionally independent of whether a rider was

@@ -159,30 +159,112 @@ router.put('/:id/status', protect, requireActiveSeller, wrap(async (req, res) =>
 }));
 
 // ---------- Customer: confirm they've received a Delivered order ----------
-// The only way an order can ever reach Completed - enforced by the state
-// machine itself (Completed is only reachable from Delivered, and only a
-// customer or admin can make that specific move), not just this route.
+// IMPORTANT: this no longer completes the order by itself. Per the
+// "admin has final say" rule, only admin can move an order to Completed
+// (see orderStatus.js's TRANSITIONS - Awaiting Admin Confirmation ->
+// Completed is admin-only). This route now just records that the
+// customer confirmed receipt, as one more signal the admin sees
+// alongside "rider marked delivered" and "OTP verified" when they
+// review the order before pressing Confirm Order Complete.
 router.put('/:id/confirm-receipt', protect, wrap(async (req, res) => {
   const order = await Order.findById(req.params.id);
   if (!order || order.customer_user_id !== req.user.id) return sendError(res, 404, 'Order not found.');
 
-  let result;
-  try {
-    result = await Order.updateStatus(req.params.id, 'Completed', { actorType: 'customer', actorId: req.user.id, notes: 'Customer confirmed receipt' });
-  } catch (err) {
-    return sendError(res, 400, err.message);
-  }
+  const result = await Order.markCustomerConfirmed(req.params.id, req.user.id);
+  if (!result) return sendError(res, 404, 'Order not found.');
 
   if (order.seller_id) {
     const Notification = require('../models/notification');
     await Notification.create(order.seller_id, {
-      title: `Order #${order.order_number} completed`,
-      message: `${order.customer_name} confirmed they received their order.`,
+      title: `Order #${order.order_number}: customer confirmed receipt`,
+      message: `${order.customer_name} confirmed they received their order. It's now awaiting admin's final confirmation.`,
       type: 'order_status'
     });
   }
 
-  return sendSuccess(res, 200, 'Thanks for confirming! Order marked as completed.', result);
+  return sendSuccess(res, 200, 'Thanks for confirming! An admin will do a final review shortly.', result);
+}));
+
+// ---------- Delivery OTP (seller/admin, whoever is handling this order's delivery) ----------
+// Generates and SMS's a fresh code to the customer - call when marking
+// an order Out for Delivery, or again any time before if the customer
+// says they never got it. Doesn't require the order to be in any
+// particular status; it's independent of the status transition itself.
+router.post('/:id/send-delivery-otp', protect, wrap(async (req, res) => {
+  const order = await Order.findById(req.params.id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+  const isSellerOwner = req.user && order.seller_id === req.user.id;
+  if (!isSellerOwner && !req.isAdmin) return sendError(res, 403, 'You do not have access to this order.');
+
+  try {
+    const result = await Order.generateDeliveryOtp(req.params.id);
+    return sendSuccess(res, 200, `Delivery code sent to ${order.customer_name}.`, result);
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+}));
+
+// Rider reports the code back through whoever's using the app (seller
+// or admin) - a correct match automatically advances the order through
+// Delivered -> Awaiting Admin Confirmation in one step (see
+// order.js's verifyDeliveryOtp). Riders have no login of their own in
+// this app, so this is always entered by the seller/admin on their
+// behalf, same pattern as rider assignment below.
+router.post('/:id/verify-delivery-otp', protect, wrap(async (req, res) => {
+  const { code } = req.body;
+  if (!code) return sendError(res, 400, 'code is required.');
+  const order = await Order.findById(req.params.id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+  const isSellerOwner = req.user && order.seller_id === req.user.id;
+  if (!isSellerOwner && !req.isAdmin) return sendError(res, 403, 'You do not have access to this order.');
+
+  const actor = req.isAdmin
+    ? { actorType: 'admin', actorId: req.admin.id }
+    : { actorType: 'seller', actorId: req.user.id };
+
+  let result;
+  try {
+    result = await Order.verifyDeliveryOtp(req.params.id, code, actor);
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+
+  const { logActivity } = require('../controllers/adminController');
+  await logActivity(req.isAdmin ? 'admin' : String(req.user.id), 'delivery_otp_verified', `order ${req.params.id}`);
+
+  return sendSuccess(res, 200, 'Delivery verified - order is now awaiting admin confirmation.', result);
+}));
+
+// ---------- Admin: the one and only path to Completed ----------
+// Deliberately its own endpoint, not folded into the generic
+// PUT /admin/:id/status below - this is a distinct, deliberate action
+// ("CONFIRM ORDER COMPLETE"), not just another status pick from a
+// dropdown, matching the spec's "admin has final say" requirement.
+router.put('/admin/:id/confirm-complete', protect, requireAdmin, wrap(async (req, res) => {
+  const { notes } = req.body;
+  const order = await Order.findById(req.params.id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+
+  let result;
+  try {
+    result = await Order.updateStatus(req.params.id, 'Completed', { actorType: 'admin', actorId: req.admin.id, notes });
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+  if (!result.changed) return sendSuccess(res, 200, 'Order is already Completed.', result);
+
+  if (order.customer_user_id) {
+    const Notification = require('../models/notification');
+    await Notification.create(order.customer_user_id, {
+      title: `Order #${order.order_number} completed`,
+      message: 'Your order has been confirmed complete. Thank you for shopping with KenLynk!',
+      type: 'order_status'
+    });
+  }
+  const { logActivity } = require('../controllers/adminController');
+  await logActivity('admin', 'order_completed', `order ${req.params.id}`);
+
+  return sendSuccess(res, 200, 'Order confirmed complete.', result);
 }));
 
 // ---------- Status history - for any of the order's own legitimate viewers ----------

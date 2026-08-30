@@ -1,11 +1,19 @@
 // smsService.js
-// Sends SMS via Africa's Talking - currently only used for "new order"
-// alerts to the 3 admin phones, alongside (never instead of) the
-// existing in-app AdminNotification. If AFRICASTALKING_API_KEY isn't
-// set (e.g. local dev, or before the account is fully live), this
-// quietly no-ops instead of throwing - SMS is a nice-to-have layered on
-// top of the in-app notifications, never a required step order
-// creation depends on.
+// Sends SMS via Africa's Talking. Two use cases:
+//   1. "New order" alerts to the 3 admin phones (sendAdminOrderSms),
+//      alongside (never instead of) the existing in-app
+//      AdminNotification.
+//   2. Delivery OTP codes to a customer's own phone (sendCustomerSms) -
+//      the code the rider needs read back to them to mark an order
+//      Delivered (see order.js's generateDeliveryOtp/verifyDeliveryOtp).
+// If AFRICASTALKING_API_KEY isn't set (e.g. local dev, or before the
+// account is fully live), both quietly no-op instead of throwing - SMS
+// is a nice-to-have layered on top of the in-app notifications and the
+// admin's own OTP-entry UI, never a required step order creation or
+// delivery verification strictly depends on. (The admin/seller marking
+// a delivery Delivered can still ask the customer to read out the code
+// over a phone call if the SMS never arrives - the OTP itself is stored
+// either way.)
 
 const AT_USERNAME = process.env.AFRICASTALKING_USERNAME || 'sandbox';
 const AT_API_KEY = process.env.AFRICASTALKING_API_KEY || '';
@@ -40,4 +48,23 @@ async function sendAdminOrderSms(message) {
   }
 }
 
-module.exports = { sendAdminOrderSms, ADMIN_SMS_NUMBERS };
+// Generic single-recipient send - used for the delivery OTP, and
+// reusable for any future customer-facing SMS (status updates, etc).
+// `phone` should already be in the same format the rest of the app
+// stores customer phone numbers in; Africa's Talking expects E.164
+// (+254...) - if your stored numbers are local format (07...), convert
+// before calling this, the same way checkout/M-Pesa already do.
+async function sendCustomerSms(phone, message) {
+  const sms = getSmsClient();
+  if (!sms || !phone) {
+    console.log(`SMS skipped (AFRICASTALKING_API_KEY not set or no phone) to ${phone}:`, message);
+    return;
+  }
+  try {
+    await sms.send({ to: [phone], message });
+  } catch (err) {
+    console.error(`Failed to send customer SMS to ${phone}:`, err.message);
+  }
+}
+
+module.exports = { sendAdminOrderSms, sendCustomerSms, ADMIN_SMS_NUMBERS };

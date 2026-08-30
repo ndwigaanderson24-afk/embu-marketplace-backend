@@ -506,6 +506,35 @@ const Order = {
     return OrderStatus.transition(id, 'Refunded', { ...actor, notes: notes || `Refunded KES ${numAmount}` });
   },
 
+  // Admin marking a platform-sourced product unavailable from the
+  // supplier - see orderStatus.js's PLATFORM_SOURCING_TRANSITIONS for
+  // why this only makes sense on a platform order (seller_id NULL); a
+  // seller-owned order can never reach 'Availability Confirmed' or
+  // 'Processing / Sourcing' in the first place, so this can never be
+  // called on one - canTransition() would reject it anyway even if it
+  // somehow were.
+  async markProductUnavailable(id, reason, actor) {
+    const OrderStatus = require('./orderStatus');
+    return OrderStatus.transition(id, 'Product Unavailable', { ...actor, notes: reason || 'Product unavailable from supplier' });
+  },
+
+  // Records the actual supplier purchase details and moves the order to
+  // Product Purchased in one call - never a bare status flip with no
+  // purchase record behind it. All fields are optional except that the
+  // transition itself must be legal (i.e. this order is actually a
+  // platform-sourced order sitting in Processing / Sourcing).
+  async recordProductPurchase(id, data, actor) {
+    const { supplier_name, supplier_order_number, supplier_purchase_cost, supplier_purchase_date, supplier_tracking_number, notes } = data;
+    await pool.query(
+      `UPDATE orders SET supplier_name = ?, supplier_order_number = ?, supplier_purchase_cost = ?,
+         supplier_purchase_date = ?, supplier_tracking_number = ?, supplier_notes = ? WHERE id = ?`,
+      [supplier_name || null, supplier_order_number || null, supplier_purchase_cost || null,
+       supplier_purchase_date || null, supplier_tracking_number || null, notes || null, id]
+    );
+    const OrderStatus = require('./orderStatus');
+    return OrderStatus.transition(id, 'Product Purchased', { ...actor, notes: 'Purchased from supplier' + (supplier_name ? `: ${supplier_name}` : '') });
+  },
+
   // Delivery rating is intentionally independent of whether a rider was
   // ever assigned - a Pickup order has none, but still had an experience
   // worth rating (product condition, speed, how the order was handled).

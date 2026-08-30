@@ -8,21 +8,94 @@
 const pool = require('../db');
 
 const STATUSES = [
-  'Pending Payment', 'Paid', 'Processing', 'Ready for Delivery',
-  'Out for Delivery', 'Delivery Failed', 'Delivered', 'Awaiting Admin Confirmation',
+  'Pending Payment', 'Paid',
+  'Availability Confirmed', 'Processing / Sourcing', 'Product Purchased', 'Product Unavailable',
+  'Seller Confirmed', 'Seller Preparing',
+  'Processing', // legacy - no longer reachable from Paid, kept valid for any pre-existing order
+  'Ready for Delivery', 'Out for Delivery', 'Delivery Failed', 'Delivered', 'Awaiting Admin Confirmation',
   'Completed', 'Return Requested', 'Return Approved', 'Returned', 'Refund Processing',
   'Cancelled', 'Refunded'
 ];
+
+// The path from Paid to Ready for Delivery forks in two, chosen
+// AUTOMATICALLY from the order's own seller_id - never picked manually
+// by an admin (see buildTransitionsForOrder below):
+//
+//   Platform/admin-owned products (seller_id IS NULL) - KenLynk itself
+//   has to actually go source the item from an external supplier:
+//     Paid -> Availability Confirmed -> Processing / Sourcing ->
+//     Product Purchased -> Ready for Delivery
+//   (or -> Product Unavailable -> Cancelled/Refunded if the supplier
+//   doesn't have it)
+//
+//   Third-party seller-owned products (seller_id IS NOT NULL) - the
+//   seller already has the stock, no sourcing step needed:
+//     Paid -> Seller Confirmed -> Seller Preparing -> Ready for Delivery
+//
+// Everything before Paid and everything from Ready for Delivery onward
+// is identical for both branches and lives in COMMON_TRANSITIONS.
+
+const PLATFORM_SOURCING_TRANSITIONS = {
+  'Paid': {
+    'Availability Confirmed': ['admin'],
+    'Cancelled': ['admin'],
+    'Refunded': ['admin']
+  },
+  'Availability Confirmed': {
+    'Processing / Sourcing': ['admin'],
+    'Product Unavailable': ['admin'],
+    'Refunded': ['admin']
+  },
+  'Processing / Sourcing': {
+    // Product Purchased is always reached via order.js's
+    // recordProductPurchase(), which stamps the supplier_* columns in
+    // the same call - never a bare status flip with no purchase record.
+    'Product Purchased': ['admin'],
+    'Product Unavailable': ['admin'],
+    'Refunded': ['admin']
+  },
+  'Product Purchased': {
+    'Ready for Delivery': ['admin'],
+    'Refunded': ['admin']
+  },
+  'Product Unavailable': {
+    // The customer already paid before this point - Cancelled here is
+    // a bare status change (e.g. handled as store credit offline);
+    // Refunded goes through the normal process-refund flow with an
+    // actual amount recorded.
+    'Cancelled': ['admin'],
+    'Refunded': ['admin']
+  }
+};
+
+const SELLER_OWNED_TRANSITIONS = {
+  'Paid': {
+    'Seller Confirmed': ['seller', 'admin'],
+    'Cancelled': ['seller', 'admin'],
+    'Refunded': ['admin']
+  },
+  'Seller Confirmed': {
+    'Seller Preparing': ['seller', 'admin'],
+    'Refunded': ['admin']
+  },
+  'Seller Preparing': {
+    'Ready for Delivery': ['seller', 'admin'],
+    'Refunded': ['admin']
+  }
+};
 
 // Maps each status to the statuses it's allowed to move to next, and
 // which actor types are allowed to make that specific move.
 //   system   - the payment webhook, or an automatic follow-on move
 //              (e.g. Delivered -> Awaiting Admin Confirmation once OTP
-//              verification succeeds), never a person acting directly
+//              verification passes), never a person acting directly
 //   seller   - the order's own seller
 //   admin    - any admin account
 //   customer - the order's own customer
 //
+// Everything shared by both sourcing branches - the part of the
+// lifecycle before Paid and from Ready for Delivery onward, plus the
+// legacy 'Processing' status kept valid for backward compatibility.
 // Completed is ONLY reachable from Awaiting Admin Confirmation, and
 // ONLY admin can make that specific move - this is the "admin has
 // final say" rule: a customer confirming receipt, or a seller/admin
@@ -30,17 +103,12 @@ const STATUSES = [
 // completes it by itself. See order.js's verifyDeliveryOtp() for how
 // Delivered -> Awaiting Admin Confirmation actually gets triggered
 // (chained automatically once the OTP check passes).
-const TRANSITIONS = {
+const COMMON_TRANSITIONS = {
   'Pending Payment': {
     'Paid': ['system'],
     'Cancelled': ['system', 'admin', 'customer'] // customer abandoning checkout, or payment timeout
   },
-  'Paid': {
-    'Processing': ['seller', 'admin'],
-    'Cancelled': ['seller', 'admin'],
-    'Refunded': ['admin']
-  },
-  'Processing': {
+  'Processing': { // legacy path - see STATUSES comment above
     'Ready for Delivery': ['seller', 'admin'],
     'Cancelled': ['admin'],
     'Refunded': ['admin']
@@ -92,10 +160,10 @@ const TRANSITIONS = {
   'Completed': {
     // A customer can request a return after the fact - admin decides
     // whether to approve or decline it (declining sends it straight
-    // back to Completed, see order.js's declineReturn). 'Refunded' is
-    // kept here too as a direct admin fast-path for cases that don't
-    // need the full return workflow (e.g. a goodwill refund with
-    // nothing physically returned).
+    // back to Completed). 'Refunded' is kept here too as a direct
+    // admin fast-path for cases that don't need the full return
+    // workflow (e.g. a goodwill refund with nothing physically
+    // returned).
     'Return Requested': ['customer', 'admin'],
     'Refunded': ['admin']
   },
@@ -121,33 +189,49 @@ const TRANSITIONS = {
   'Refunded': {}
 };
 
-function canTransition(fromStatus, toStatus, actorType) {
-  const allowedActors = TRANSITIONS[fromStatus] && TRANSITIONS[fromStatus][toStatus];
+// Merges the shared transitions with whichever sourcing branch this
+// specific order belongs to - determined purely from order.seller_id,
+// never from anything the caller passes in. A platform order (seller_id
+// NULL) can never be routed through the seller-owned branch and vice
+// versa, since the branch choice is derived here, not supplied.
+function buildTransitionsForOrder(order) {
+  const branch = (order && order.seller_id) ? SELLER_OWNED_TRANSITIONS : PLATFORM_SOURCING_TRANSITIONS;
+  return { ...COMMON_TRANSITIONS, ...branch };
+}
+
+function canTransition(fromStatus, toStatus, actorType, order) {
+  const transitions = buildTransitionsForOrder(order);
+  const allowedActors = transitions[fromStatus] && transitions[fromStatus][toStatus];
   return !!(allowedActors && allowedActors.includes(actorType));
 }
 
 const OrderStatus = {
   STATUSES,
-  TRANSITIONS,
+  COMMON_TRANSITIONS,
+  PLATFORM_SOURCING_TRANSITIONS,
+  SELLER_OWNED_TRANSITIONS,
+  buildTransitionsForOrder,
   canTransition,
 
   // The one place orders.status ever gets written. Validates the move
-  // is actually legal for this actor before touching anything, records
-  // it in order_status_history either way (rejected attempts are NOT
-  // recorded - only real changes), and stamps delivered_at/completed_at/
-  // paid_at/awaiting_confirmation_at so those timestamps are always
+  // is actually legal for this actor AND this order's sourcing branch
+  // before touching anything, records it in order_status_history either
+  // way (rejected attempts are NOT recorded - only real changes), and
+  // stamps delivered_at/completed_at/paid_at/awaiting_confirmation_at/
+  // refunded_at/product_purchased_at so those timestamps are always
   // trustworthy without having to trust the status string alone.
   async transition(orderId, toStatus, { actorType, actorId = null, notes = null } = {}) {
     if (!STATUSES.includes(toStatus)) {
       throw new Error(`"${toStatus}" is not a real order status.`);
     }
-    const [rows] = await pool.query('SELECT status FROM orders WHERE id = ?', [orderId]);
+    const [rows] = await pool.query('SELECT status, seller_id FROM orders WHERE id = ?', [orderId]);
     if (!rows.length) throw new Error('Order not found.');
-    const fromStatus = rows[0].status;
+    const order = rows[0];
+    const fromStatus = order.status;
 
     if (fromStatus === toStatus) return { fromStatus, toStatus, changed: false };
 
-    if (!canTransition(fromStatus, toStatus, actorType)) {
+    if (!canTransition(fromStatus, toStatus, actorType, order)) {
       throw new Error(`Cannot move an order from "${fromStatus}" to "${toStatus}".`);
     }
 
@@ -158,6 +242,7 @@ const OrderStatus = {
     if (toStatus === 'Completed') { extraSets.push('completed_at = NOW()'); }
     if (toStatus === 'Paid') { extraSets.push('paid_at = NOW()'); }
     if (toStatus === 'Refunded') { extraSets.push('refunded_at = NOW()'); }
+    if (toStatus === 'Product Purchased') { extraSets.push('product_purchased_at = NOW()'); }
 
     await pool.query(
       `UPDATE orders SET status = ?${extraSets.length ? ', ' + extraSets.join(', ') : ''} WHERE id = ?`,

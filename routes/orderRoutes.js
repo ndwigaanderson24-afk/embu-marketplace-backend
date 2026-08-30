@@ -235,6 +235,57 @@ router.post('/:id/verify-delivery-otp', protect, wrap(async (req, res) => {
   return sendSuccess(res, 200, 'Delivery verified - order is now awaiting admin confirmation.', result);
 }));
 
+// ---------- Supplier sourcing (admin, platform/admin-owned products only) ----------
+// Both routes are admin-only and the sourcing-branch check itself
+// happens inside OrderStatus.transition() (via order.seller_id) - a
+// seller-owned order can never legally reach either of these, so no
+// extra ownership guard is needed here beyond requireAdmin.
+router.post('/admin/:id/product-unavailable', protect, requireAdmin, wrap(async (req, res) => {
+  const { reason } = req.body;
+  const order = await Order.findById(req.params.id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+
+  let result;
+  try {
+    result = await Order.markProductUnavailable(req.params.id, reason, { actorType: 'admin', actorId: req.admin.id });
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+
+  if (order.customer_user_id) {
+    const Notification = require('../models/notification');
+    await Notification.create(order.customer_user_id, {
+      title: `Order #${order.order_number}: item unavailable`,
+      message: reason || 'Unfortunately this item is no longer available from our supplier. We will be in touch about a refund.',
+      type: 'order_status'
+    });
+  }
+  const { logActivity } = require('../controllers/adminController');
+  await logActivity('admin', 'product_unavailable', `order ${req.params.id}: ${reason || ''}`);
+
+  return sendSuccess(res, 200, 'Marked as unavailable.', result);
+}));
+
+// Captures the real supplier purchase record (supplier name, their
+// order number, actual cost, purchase date, tracking number, notes)
+// and advances the order to Product Purchased in one call.
+router.put('/admin/:id/mark-purchased', protect, requireAdmin, wrap(async (req, res) => {
+  const order = await Order.findById(req.params.id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+
+  let result;
+  try {
+    result = await Order.recordProductPurchase(req.params.id, req.body, { actorType: 'admin', actorId: req.admin.id });
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+
+  const { logActivity } = require('../controllers/adminController');
+  await logActivity('admin', 'product_purchased', `order ${req.params.id}: ${req.body.supplier_name || ''}`);
+
+  return sendSuccess(res, 200, 'Purchase recorded - order moved to Product Purchased.', result);
+}));
+
 // ---------- Delivery failed / retry (seller/admin) ----------
 router.post('/:id/delivery-failed', protect, wrap(async (req, res) => {
   const { reason } = req.body;

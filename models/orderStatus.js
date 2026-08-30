@@ -9,8 +9,9 @@ const pool = require('../db');
 
 const STATUSES = [
   'Pending Payment', 'Paid', 'Processing', 'Ready for Delivery',
-  'Out for Delivery', 'Delivered', 'Awaiting Admin Confirmation',
-  'Completed', 'Cancelled', 'Refunded'
+  'Out for Delivery', 'Delivery Failed', 'Delivered', 'Awaiting Admin Confirmation',
+  'Completed', 'Return Requested', 'Return Approved', 'Returned', 'Refund Processing',
+  'Cancelled', 'Refunded'
 ];
 
 // Maps each status to the statuses it's allowed to move to next, and
@@ -53,6 +54,24 @@ const TRANSITIONS = {
     // delivery in the area) as well as by the system once OTP
     // verification passes - see order.js's verifyDeliveryOtp().
     'Delivered': ['seller', 'admin', 'system'],
+    // The rider tried and couldn't complete the delivery - customer
+    // unreachable, refused it, wrong address, etc. The specific reason
+    // is captured as free text in the transition's notes (see
+    // order.js's markDeliveryFailed) rather than as separate statuses
+    // for every possible reason, since order_status_history already
+    // records notes per transition and a dozen near-duplicate statuses
+    // would add real state-machine complexity for no functional gain
+    // over a single "Delivery Failed" status with a clear note.
+    'Delivery Failed': ['seller', 'admin'],
+    'Refunded': ['admin']
+  },
+  'Delivery Failed': {
+    // Retry - seller/admin sends the rider out again (or a different
+    // one). Doesn't require a fresh OTP send here specifically; that's
+    // a separate action via the existing send-delivery-otp endpoint,
+    // since the previous code may still be valid/unexpired.
+    'Out for Delivery': ['seller', 'admin'],
+    'Cancelled': ['admin'],
     'Refunded': ['admin']
   },
   'Delivered': {
@@ -71,7 +90,32 @@ const TRANSITIONS = {
     'Refunded': ['admin']
   },
   'Completed': {
-    'Refunded': ['admin'] // a completed order can still be refunded later (returns, disputes)
+    // A customer can request a return after the fact - admin decides
+    // whether to approve or decline it (declining sends it straight
+    // back to Completed, see order.js's declineReturn). 'Refunded' is
+    // kept here too as a direct admin fast-path for cases that don't
+    // need the full return workflow (e.g. a goodwill refund with
+    // nothing physically returned).
+    'Return Requested': ['customer', 'admin'],
+    'Refunded': ['admin']
+  },
+  'Return Requested': {
+    'Return Approved': ['admin'],
+    'Completed': ['admin'], // declined - back to normal completed state
+    'Refunded': ['admin']
+  },
+  'Return Approved': {
+    // Admin marks it once the physical item is actually back in hand -
+    // this is a real receiving step, not automatic on approval.
+    'Returned': ['admin'],
+    'Refunded': ['admin']
+  },
+  'Returned': {
+    'Refund Processing': ['admin'],
+    'Refunded': ['admin']
+  },
+  'Refund Processing': {
+    'Refunded': ['admin']
   },
   'Cancelled': {},
   'Refunded': {}
@@ -113,6 +157,7 @@ const OrderStatus = {
     if (toStatus === 'Awaiting Admin Confirmation') { extraSets.push('awaiting_confirmation_at = NOW()'); }
     if (toStatus === 'Completed') { extraSets.push('completed_at = NOW()'); }
     if (toStatus === 'Paid') { extraSets.push('paid_at = NOW()'); }
+    if (toStatus === 'Refunded') { extraSets.push('refunded_at = NOW()'); }
 
     await pool.query(
       `UPDATE orders SET status = ?${extraSets.length ? ', ' + extraSets.join(', ') : ''} WHERE id = ?`,

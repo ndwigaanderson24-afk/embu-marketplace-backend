@@ -465,6 +465,47 @@ const Order = {
     return { confirmed: true };
   },
 
+  // Called by seller/admin when a rider couldn't complete the delivery -
+  // captures the reason as a plain note on the transition itself
+  // (order_status_history.notes), rather than as a separate status per
+  // reason. Doesn't touch the delivery_otp - a subsequent retry (see
+  // the Delivery Failed -> Out for Delivery transition in
+  // orderStatus.js) can reuse the existing code if it hasn't expired,
+  // or the seller/admin can call generateDeliveryOtp again for a fresh one.
+  async markDeliveryFailed(id, reason, actor) {
+    const OrderStatus = require('./orderStatus');
+    return OrderStatus.transition(id, 'Delivery Failed', { ...actor, notes: reason || 'Delivery attempt failed' });
+  },
+
+  // Customer requesting a return on a Completed order - stores the
+  // reason on the order itself (not just in history) so it's easy for
+  // admin's return-review UI to show without joining back to the
+  // history table.
+  async requestReturn(id, userId, reason) {
+    const order = await this.findById(id);
+    if (!order || order.customer_user_id !== userId) return null;
+    await pool.query('UPDATE orders SET return_reason = ? WHERE id = ?', [reason || null, id]);
+    const OrderStatus = require('./orderStatus');
+    return OrderStatus.transition(id, 'Return Requested', { actorType: 'customer', actorId: userId, notes: reason });
+  },
+
+  // Admin finalizing a refund - records the actual amount refunded
+  // (which may be less than the full order total, e.g. a partial
+  // refund) alongside the status transition. amount is required and
+  // validated against the order's own total so a typo can't refund
+  // more than the customer ever paid.
+  async processRefund(id, amount, actor, notes) {
+    const order = await this.findById(id);
+    if (!order) throw new Error('Order not found.');
+    const numAmount = Number(amount);
+    if (!numAmount || numAmount <= 0) throw new Error('A valid refund amount is required.');
+    if (numAmount > Number(order.total)) throw new Error(`Refund amount cannot exceed the order total (KES ${order.total}).`);
+
+    await pool.query('UPDATE orders SET refund_amount = ? WHERE id = ?', [numAmount, id]);
+    const OrderStatus = require('./orderStatus');
+    return OrderStatus.transition(id, 'Refunded', { ...actor, notes: notes || `Refunded KES ${numAmount}` });
+  },
+
   // Delivery rating is intentionally independent of whether a rider was
   // ever assigned - a Pickup order has none, but still had an experience
   // worth rating (product condition, speed, how the order was handled).

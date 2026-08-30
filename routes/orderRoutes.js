@@ -235,6 +235,95 @@ router.post('/:id/verify-delivery-otp', protect, wrap(async (req, res) => {
   return sendSuccess(res, 200, 'Delivery verified - order is now awaiting admin confirmation.', result);
 }));
 
+// ---------- Delivery failed / retry (seller/admin) ----------
+router.post('/:id/delivery-failed', protect, wrap(async (req, res) => {
+  const { reason } = req.body;
+  const order = await Order.findById(req.params.id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+  const isSellerOwner = req.user && order.seller_id === req.user.id;
+  if (!isSellerOwner && !req.isAdmin) return sendError(res, 403, 'You do not have access to this order.');
+
+  const actor = req.isAdmin ? { actorType: 'admin', actorId: req.admin.id } : { actorType: 'seller', actorId: req.user.id };
+  let result;
+  try {
+    result = await Order.markDeliveryFailed(req.params.id, reason, actor);
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+  return sendSuccess(res, 200, 'Marked as delivery failed.', result);
+}));
+
+router.put('/:id/retry-delivery', protect, wrap(async (req, res) => {
+  const order = await Order.findById(req.params.id);
+  if (!order) return sendError(res, 404, 'Order not found.');
+  const isSellerOwner = req.user && order.seller_id === req.user.id;
+  if (!isSellerOwner && !req.isAdmin) return sendError(res, 403, 'You do not have access to this order.');
+
+  const actor = req.isAdmin ? { actorType: 'admin', actorId: req.admin.id } : { actorType: 'seller', actorId: req.user.id };
+  let result;
+  try {
+    result = await Order.updateStatus(req.params.id, 'Out for Delivery', { ...actor, notes: 'Retrying delivery' });
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+  return sendSuccess(res, 200, 'Order moved back to Out for Delivery.', result);
+}));
+
+// ---------- Returns (customer requests, admin handles) ----------
+router.post('/:id/request-return', protect, wrap(async (req, res) => {
+  const { reason } = req.body;
+  if (!reason || !reason.trim()) return sendError(res, 400, 'Please tell us why you want to return this order.');
+
+  let result;
+  try {
+    result = await Order.requestReturn(req.params.id, req.user.id, reason.trim());
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+  if (!result) return sendError(res, 404, 'Order not found.');
+
+  const order = await Order.findById(req.params.id);
+  const { logActivity } = require('../controllers/adminController');
+  await logActivity(String(req.user.id), 'return_requested', `order ${req.params.id}: ${reason.trim()}`);
+  if (order.seller_id) {
+    const Notification = require('../models/notification');
+    await Notification.create(order.seller_id, {
+      title: `Return requested for order #${order.order_number}`,
+      message: `${order.customer_name} requested a return: "${reason.trim()}"`,
+      type: 'order_status'
+    });
+  }
+
+  return sendSuccess(res, 200, 'Return request submitted. Our team will review it shortly.', result);
+}));
+
+// Admin processing the final refund amount - deliberately its own
+// endpoint (not the generic status route) since it needs to capture and
+// validate an amount, not just flip a status.
+router.put('/admin/:id/process-refund', protect, requireAdmin, wrap(async (req, res) => {
+  const { amount, notes } = req.body;
+  let result;
+  try {
+    result = await Order.processRefund(req.params.id, amount, { actorType: 'admin', actorId: req.admin.id }, notes);
+  } catch (err) {
+    return sendError(res, 400, err.message);
+  }
+
+  const order = await Order.findById(req.params.id);
+  if (order && order.customer_user_id) {
+    const Notification = require('../models/notification');
+    await Notification.create(order.customer_user_id, {
+      title: `Order #${order.order_number} refunded`,
+      message: `KES ${amount} has been refunded for your order.`,
+      type: 'order_status'
+    });
+  }
+  const { logActivity } = require('../controllers/adminController');
+  await logActivity('admin', 'order_refunded', `order ${req.params.id}: KES ${amount}`);
+
+  return sendSuccess(res, 200, `Refund of KES ${amount} processed.`, result);
+}));
+
 // ---------- Admin: the one and only path to Completed ----------
 // Deliberately its own endpoint, not folded into the generic
 // PUT /admin/:id/status below - this is a distinct, deliberate action

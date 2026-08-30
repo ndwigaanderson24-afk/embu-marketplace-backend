@@ -55,7 +55,12 @@ function getSmsClient() {
 }
 
 // Fire-and-forget: failures are logged, never thrown, so a flaky SMS
-// provider can never block or roll back an order.
+// provider can never block or roll back an order. Logs the FULL result
+// either way (not just thrown exceptions) - Africa's Talking's SDK
+// often resolves successfully even when a specific recipient was
+// rejected, burying the real reason inside result.SMSMessageData
+// .Recipients[].status rather than throwing. Without logging the raw
+// result, a rejected number would fail completely silently.
 async function sendAdminOrderSms(message) {
   const sms = getSmsClient();
   if (!sms) {
@@ -63,7 +68,8 @@ async function sendAdminOrderSms(message) {
     return;
   }
   try {
-    await sms.send({ to: ADMIN_SMS_NUMBERS, message });
+    const result = await sms.send({ to: ADMIN_SMS_NUMBERS, message });
+    console.log('Admin SMS send result:', JSON.stringify(result));
   } catch (err) {
     console.error('Failed to send admin order SMS:', err.message);
   }
@@ -76,6 +82,10 @@ async function sendAdminOrderSms(message) {
 // it before this ever reaches Africa's Talking, which requires strict
 // E.164. A number that doesn't convert cleanly is logged and skipped
 // rather than sent malformed and silently swallowed by the provider.
+// Logs the FULL raw result on every attempt - see the comment on
+// sendAdminOrderSms above for why: a rejected/invalid recipient can
+// come back as a normal, non-throwing response with the real failure
+// reason buried inside it, not as a caught exception.
 async function sendCustomerSms(phone, message) {
   const sms = getSmsClient();
   const e164Phone = toE164Kenya(phone);
@@ -84,7 +94,8 @@ async function sendCustomerSms(phone, message) {
     return;
   }
   try {
-    await sms.send({ to: [e164Phone], message });
+    const result = await sms.send({ to: [e164Phone], message });
+    console.log(`Customer SMS send result for ${e164Phone}:`, JSON.stringify(result));
   } catch (err) {
     console.error(`Failed to send customer SMS to ${e164Phone}:`, err.message);
   }

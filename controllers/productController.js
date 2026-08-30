@@ -5,6 +5,26 @@ const Review = require('../models/review');
 const Order = require('../models/order');
 const { sendSuccess, sendError } = require('../helpers');
 const AnalyticsEvent = require('../models/analyticsEvent');
+const { uploadBufferToCloudinary } = require('../cloudinaryUpload');
+
+// POST /api/products/upload-video  (protected - seller or admin, either
+// can add a product video; not tied to a specific product yet, since
+// the video needs to exist on Cloudinary before it can be included in
+// a create/update payload). Deliberately its own endpoint rather than
+// bundled into the regular product create/update body - a 5-minute
+// video is genuinely large, and forcing it through the same base64-in-
+// JSON path the admin form uses for photos would risk huge request
+// bodies and timeouts. multer hands this a real file buffer instead,
+// same pattern already proven for the seller's photo uploads.
+exports.uploadVideo = async (req, res) => {
+  if (!req.file) return sendError(res, 400, 'No video file was received.');
+  try {
+    const url = await uploadBufferToCloudinary(req.file.buffer, 'kenlynk/product-videos', 'video');
+    return sendSuccess(res, 200, 'Video uploaded.', { url });
+  } catch (err) {
+    return sendError(res, 500, 'Video upload failed: ' + err.message);
+  }
+};
 
 // The pricing breakdown (seller_price, price_commission,
 // price_delivery_fee) must never reach a buyer - they see only the

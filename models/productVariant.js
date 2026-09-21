@@ -344,6 +344,32 @@ const ProductVariant = {
       [threshold]
     );
     return rows;
+  },
+
+  // Every active variant with no photo of its own (images_json NULL,
+  // empty array, or empty string) - a checklist for going back through
+  // products that predate per-variant photos (or where a seller simply
+  // skipped that step), rather than checking products one by one. A
+  // variant showing up here will fall back to the product's own plain
+  // photo in the order modal regardless of which colour/option a buyer
+  // taps, since there's nothing variant-specific stored to show instead.
+  async getVariantsMissingImages() {
+    const [rows] = await pool.query(
+      `SELECT v.id AS variant_id, v.sku, v.is_active,
+              p.id AS product_id, p.name AS product_name, p.seller_id,
+              u.business_name AS seller_business_name, u.email AS seller_email,
+              GROUP_CONCAT(CONCAT(a.name, '=', o.value) ORDER BY a.position SEPARATOR ', ') AS label
+       FROM product_variants v
+       JOIN products p ON p.id = v.product_id
+       LEFT JOIN users u ON u.id = p.seller_id
+       LEFT JOIN product_variant_options o ON o.variant_id = v.id
+       LEFT JOIN product_variant_attributes a ON a.id = o.attribute_id
+       WHERE v.is_active = 1
+         AND (v.images_json IS NULL OR v.images_json = '' OR v.images_json = '[]')
+       GROUP BY v.id
+       ORDER BY p.name ASC, v.id ASC`
+    );
+    return rows;
   }
 };
 

@@ -189,6 +189,15 @@ exports.adminLowStock = async (req, res) => {
   return sendSuccess(res, 200, 'Low-stock variants retrieved.', { variants });
 };
 
+// GET /api/admin/variants/missing-images - checklist of every active
+// variant with no photo of its own, so admin can work through older
+// products (from before per-variant photos existed) systematically
+// instead of checking each one by hand.
+exports.adminMissingImages = async (req, res) => {
+  const variants = await ProductVariant.getVariantsMissingImages();
+  return sendSuccess(res, 200, 'Variants missing images retrieved.', { variants });
+};
+
 // GET /api/admin/products/:id/variants
 exports.adminGetProductVariants = async (req, res) => {
   const product = await Product.findById(req.params.id);

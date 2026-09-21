@@ -27,6 +27,7 @@ router.patch ('/products/:id/variants/:vid/price', protect, requireActiveSeller,
 // ── Admin ────────────────────────────────────────────────────────────────
 // Inventory overview
 router.get('/admin/variants/low-stock',             protect, requireAdmin, wrap(vc.adminLowStock));
+router.get('/admin/variants/missing-images',        protect, requireAdmin, wrap(vc.adminMissingImages));
 // Per-product admin variant management
 router.get   ('/admin/products/:id/variants',       protect, requireAdmin, wrap(vc.adminGetProductVariants));
 router.put   ('/admin/products/:id/attributes',     protect, requireAdmin, wrap(vc.adminSetAttributes));

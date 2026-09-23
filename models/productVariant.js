@@ -104,8 +104,22 @@ const ProductVariant = {
     // variant inherits the parent's price via COALESCE at read time.
     let priced = null;
     if (seller_price !== undefined && seller_price !== null && seller_price !== '') {
-      const [[product]] = await pool.query('SELECT weight FROM products WHERE id = ?', [productId]);
-      priced = computeFinalPrice(seller_price, { weight: product ? product.weight : 1 });
+      // Fetches the parent's commission override and fragile status
+      // alongside its weight - a variant's own price must reflect the
+      // SAME commission deal and fragile surcharge as the rest of the
+      // product, since these represent KenLynk's arrangement with the
+      // seller on that product, not on any one specific colour/size.
+      const [[product]] = await pool.query(
+        'SELECT weight, commission_type, commission_value, delivery_fee_override, fragile FROM products WHERE id = ?',
+        [productId]
+      );
+      priced = computeFinalPrice(seller_price, {
+        weight: product ? product.weight : 1,
+        commissionType: product ? product.commission_type : undefined,
+        commissionValue: product ? product.commission_value : undefined,
+        deliveryFeeOverride: product ? product.delivery_fee_override : undefined,
+        fragile: product ? !!product.fragile : false
+      });
     }
 
     // A variant's own Kanyaga price - deliberately just a flat KES
@@ -207,8 +221,17 @@ const ProductVariant = {
       if (sellerPrice === null || sellerPrice === '') {
         sets.push('price = NULL', 'seller_price = NULL');
       } else {
-        const [[product]] = await pool.query('SELECT weight FROM products WHERE id = ?', [productId]);
-        const priced = computeFinalPrice(sellerPrice, { weight: product ? product.weight : 1 });
+        const [[product]] = await pool.query(
+          'SELECT weight, commission_type, commission_value, delivery_fee_override, fragile FROM products WHERE id = ?',
+          [productId]
+        );
+        const priced = computeFinalPrice(sellerPrice, {
+          weight: product ? product.weight : 1,
+          commissionType: product ? product.commission_type : undefined,
+          commissionValue: product ? product.commission_value : undefined,
+          deliveryFeeOverride: product ? product.delivery_fee_override : undefined,
+          fragile: product ? !!product.fragile : false
+        });
         sets.push('price = ?', 'seller_price = ?');
         values.push(priced.finalPrice, priced.sellerPrice);
       }

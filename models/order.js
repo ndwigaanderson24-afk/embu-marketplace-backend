@@ -119,8 +119,18 @@ const Order = {
       const regularUnitPrice = Number(item.price) || 0;
       const unitPrice = getFinalUnitPrice(item);
       const ratio = regularUnitPrice > 0 ? unitPrice / regularUnitPrice : 1;
-      const commission = computeCommission(Number(item.seller_price != null ? item.seller_price : item.price));
-      const deliveryFee = computeDeliveryFee(item.weight);
+      // item carries the parent product's own commission_type/
+      // commission_value/delivery_fee_override/fragile directly
+      // (cart.js's getItems does a plain p.* select, so these come
+      // through unmodified on every cart row, variant or not) - passing
+      // them here is what makes an admin-configured per-product
+      // override (and the fragile surcharge) actually take effect at
+      // checkout, not just on the product page preview. A product left
+      // at commission_type = 'default' and fragile = false computes
+      // identically to the plain bracket calculation.
+      const override = { commissionType: item.commission_type, commissionValue: item.commission_value, fragile: !!item.fragile };
+      const commission = computeCommission(Number(item.seller_price != null ? item.seller_price : item.price), override);
+      const deliveryFee = computeDeliveryFee(item.weight, { deliveryFeeOverride: item.delivery_fee_override });
 
       g.subtotal += unitPrice * item.qty;
       g.sellerSubtotal += Number(item.seller_price != null ? item.seller_price : item.price) * ratio * item.qty;

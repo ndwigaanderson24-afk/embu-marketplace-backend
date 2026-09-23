@@ -101,10 +101,14 @@ exports.initiateCheckoutPayment = async (req, res) => {
     if (item.qty > item.stock) return sendError(res, 400, `Insufficient stock for "${item.name}" (${item.stock} left).`);
   }
 
-  // Same math the real order will use - see Order.groupCartBySeller. This
-  // is what we charge, so it MUST match what createFromCart bills later.
+  // Same math the real order will use - see Order.groupCartBySeller and
+  // createFromCart's `const total = group.subtotal`. group.subtotal is
+  // already the complete, final amount for that seller's items - each
+  // product's price already has commission and delivery baked in (see
+  // helpers.js's computeFinalPrice), so nothing else gets added on top
+  // here. This MUST match what createFromCart bills later.
   const plan = Order.computeDeliveryPlan(cartItems, delivery.dest_county, delivery.type, delivery.weight_override);
-  const amount = Math.round(plan.groups.reduce((sum, g) => sum + g.subtotal + g.fee, 0));
+  const amount = Math.round(plan.groups.reduce((sum, g) => sum + g.subtotal, 0));
   if (!amount || amount <= 0) return sendError(res, 400, 'Could not calculate a valid order total.');
 
   const payload = {

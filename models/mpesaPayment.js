@@ -3,11 +3,15 @@
 const pool = require('../db');
 
 const MpesaPayment = {
-  async create({ phone, amount, purpose, purpose_months, user_id }) {
+  // purpose_plan and payload_json are optional - purpose_plan for a
+  // subscription payment (which Silver/Gold plan), payload_json for an
+  // order payment (everything needed to create the order once payment
+  // is confirmed - see paymentController.js's mpesaCallback).
+  async create({ phone, amount, purpose, purpose_months, purpose_plan, payload_json, user_id }) {
     const [result] = await pool.query(
-      `INSERT INTO mpesa_payments (phone, amount, purpose, purpose_months, user_id, status)
-       VALUES (?,?,?,?,?,'pending')`,
-      [phone, amount, purpose, purpose_months || null, user_id || null]
+      `INSERT INTO mpesa_payments (phone, amount, purpose, purpose_months, purpose_plan, payload_json, user_id, status)
+       VALUES (?,?,?,?,?,?,?,'pending')`,
+      [phone, amount, purpose, purpose_months || null, purpose_plan || null, payload_json || null, user_id || null]
     );
     return result.insertId;
   },
@@ -41,6 +45,14 @@ const MpesaPayment = {
       "UPDATE mpesa_payments SET status = 'failed', result_desc = ? WHERE checkout_request_id = ?",
       [result_desc || null, checkoutRequestId]
     );
+  },
+
+  // Records what actually happened once a confirmed order payment was
+  // applied - the created order IDs, or an error if something went
+  // wrong creating the order AFTER payment was already taken (so
+  // support can find and refund it, rather than it silently vanishing).
+  async setResult(id, resultJson) {
+    await pool.query('UPDATE mpesa_payments SET result_json = ? WHERE id = ?', [resultJson, id]);
   }
 };
 

@@ -29,8 +29,11 @@ exports.uploadVideo = async (req, res) => {
 // The pricing breakdown (seller_price, price_commission,
 // price_delivery_fee) must never reach a buyer - they see only the
 // final, all-inclusive `price`. Admin-only endpoints (adminGetAll etc)
-// skip this and return the full row.
-const PRICE_INTERNAL_FIELDS = ['seller_price', 'price_commission', 'price_delivery_fee'];
+// skip this and return the full row. commission_type/commission_value/
+// delivery_fee_override are included here too - a buyer has no
+// business seeing KenLynk's internal commission arrangement on a given
+// product, even though it doesn't change what they actually pay.
+const PRICE_INTERNAL_FIELDS = ['seller_price', 'price_commission', 'price_delivery_fee', 'commission_type', 'commission_value', 'delivery_fee_override'];
 
 function stripPricingForBuyer(product) {
   if (!product) return product;
@@ -41,12 +44,18 @@ function stripPricingForBuyer(product) {
 
 // A seller can see their own asking price and the final buyer price
 // (so they understand what changed), but not the commission/delivery-fee
-// split - that stays admin-only, same visibility rule as before.
+// split - that stays admin-only, same visibility rule as before. The
+// per-product commission override fields follow the same rule: a
+// seller sees the final price it produces, never the configuration
+// itself.
 function stripBreakdownForSeller(product) {
   if (!product) return product;
   const clean = { ...product };
   delete clean.price_commission;
   delete clean.price_delivery_fee;
+  delete clean.commission_type;
+  delete clean.commission_value;
+  delete clean.delivery_fee_override;
   return clean;
 }
 
@@ -58,12 +67,24 @@ function stripBreakdownForSeller(product) {
 // final price to a seller; admin also gets the commission/delivery-fee
 // breakdown, matching the same seller-vs-admin visibility rule used
 // everywhere else pricing is shown.
+//
+// commission_type/commission_value/delivery_fee_override are ONLY ever
+// read from req.body when req.isAdmin - a seller's request body simply
+// never gets passed to the pricing calculation, even if a seller sends
+// those fields directly (e.g. via a hand-crafted request), since this
+// is effectively KenLynk's own commission rate on that seller's sale,
+// never something the seller themselves should be able to set. fragile
+// is not admin-only - a seller marking their own product fragile is
+// normal and expected.
 exports.previewPrice = async (req, res) => {
-  const { seller_price, weight } = req.body;
+  const { seller_price, weight, fragile, commission_type, commission_value, delivery_fee_override } = req.body;
   if (seller_price === undefined || Number(seller_price) <= 0) {
     return sendError(res, 400, 'seller_price must be greater than 0.');
   }
-  const priced = await Product.previewPrice(seller_price, { weight });
+  const override = req.isAdmin
+    ? { commissionType: commission_type, commissionValue: commission_value, deliveryFeeOverride: delivery_fee_override }
+    : {};
+  const priced = await Product.previewPrice(seller_price, { weight, fragile: !!fragile, ...override });
   const data = { seller_price: priced.sellerPrice, price: priced.finalPrice };
   if (req.isAdmin) {
     data.commission = priced.commission;
@@ -90,8 +111,14 @@ exports.create = async (req, res) => {
 
   // County always comes from the seller's own account, never the request
   // body - this is what makes delivery-fee calculation trustworthy.
+  // commission_type/commission_value/delivery_fee_override are stripped
+  // unconditionally here, before Product.create ever sees the body -
+  // this is a seller-facing route, and those three fields are
+  // admin-only (see adminCreate below for the route that's actually
+  // allowed to set them).
+  const { commission_type, commission_value, delivery_fee_override, ...safeBody } = req.body;
   const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : (req.body.image || null);
-  const productId = await Product.create(req.user.id, { ...req.body, county: req.user.county, image });
+  const productId = await Product.create(req.user.id, { ...safeBody, county: req.user.county, image });
   const product = await Product.findById(productId);
   return sendSuccess(res, 201, 'Product added.', { product: stripBreakdownForSeller(product) });
 };
@@ -104,8 +131,12 @@ exports.getMine = async (req, res) => {
 
 // PUT /api/products/:id  (protected, multipart/form-data field "images" optional)
 exports.update = async (req, res) => {
+  // Same admin-only stripping as create() above - a seller editing
+  // their own product can never touch their own commission rate this
+  // way either.
+  const { commission_type, commission_value, delivery_fee_override, ...safeBody } = req.body;
   const image = req.files && req.files.length ? `/uploads/products/${req.files[0].filename}` : undefined;
-  const updated = await Product.update(req.params.id, req.user.id, { ...req.body, ...(image ? { image } : {}) });
+  const updated = await Product.update(req.params.id, req.user.id, { ...safeBody, ...(image ? { image } : {}) });
   if (!updated) return sendError(res, 404, 'Product not found or nothing to update.');
   const product = await Product.findById(req.params.id);
   return sendSuccess(res, 200, 'Product updated.', { product: stripBreakdownForSeller(product) });

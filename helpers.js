@@ -117,21 +117,78 @@ function todayStr() {
 // artifact). Delivery fee is looked up from the product's weight, with
 // a per-2kg-block charge above 70kg (any partial block still costs a
 // full block, e.g. 71kg = one full extra block).
-function computeCommission(productPrice) {
+// ---------- All-inclusive pricing engine ----------
+// Turns a seller's asking price into the final, all-inclusive price the
+// buyer sees. This is the single source of truth: product creation and
+// order creation both call this, so the number can never drift between
+// what a buyer was shown and what actually gets charged.
+//
+// PRICING MODEL — fixed commission and delivery-fee brackets. This is
+// the ONLY pricing calculation used anywhere on KenLynk - the old
+// pricing_rules/pricing_settings tables are not read here at all.
+//
+// Final Customer Price = Product Price + Commission + Delivery Fee
+//
+// Commission is a flat KES amount looked up from the product's own
+// price, not a percentage - below KES 500 the commission equals the
+// product price itself (a deliberate, explicit rule, not a rounding
+// artifact). Delivery fee is looked up from the product's weight, with
+// a per-2kg-block charge above 70kg (any partial block still costs a
+// full block, e.g. 71kg = one full extra block).
+//
+// `override` is optional, per-product admin-set config:
+//   override.commissionType:  'default' | 'percentage' | 'flat'
+//   override.commissionValue: the % (e.g. 15 = 15%) or flat KES amount
+//     - takes priority over the fixed brackets below; when absent (the
+//     'default' type, or no override object at all), behaviour is
+//     byte-for-byte identical to the plain bracket-only calculation.
+//   override.deliveryFeeOverride: a flat KES amount replacing the
+//     weight-bracket delivery fee entirely, or null/undefined to keep
+//     using the weight brackets.
+//   override.fragile: when true, adds a flat 5% fragile-handling
+//     surcharge (5% of the product's own price) ON TOP of whichever
+//     commission just got computed above - stacks with either the
+//     default brackets or a custom commission override, it's never a
+//     replacement for either.
+const FRAGILE_SURCHARGE_RATE = 0.05; // 5% of the product's own price
+function computeCommission(productPrice, override) {
   const p = Number(productPrice) || 0;
-  if (p < 500) return p;
-  if (p <= 999) return 400;
-  if (p <= 2499) return 800;
-  if (p <= 4999) return 1500;
-  if (p <= 9999) return 2500;
-  if (p <= 19999) return 3500;
-  if (p <= 29999) return 4500;
-  if (p <= 49999) return 5000;
-  if (p <= 64999) return 6000;
-  return 7000; // >= 65000
+  let commission;
+  if (override && override.commissionType === 'percentage' && override.commissionValue != null && override.commissionValue !== '') {
+    commission = Math.round(p * (Number(override.commissionValue) / 100) * 100) / 100;
+  } else if (override && override.commissionType === 'flat' && override.commissionValue != null && override.commissionValue !== '') {
+    commission = Number(override.commissionValue);
+  } else if (p < 500) {
+    commission = p;
+  } else if (p <= 999) {
+    commission = 400;
+  } else if (p <= 2499) {
+    commission = 800;
+  } else if (p <= 4999) {
+    commission = 1500;
+  } else if (p <= 9999) {
+    commission = 2500;
+  } else if (p <= 19999) {
+    commission = 3500;
+  } else if (p <= 29999) {
+    commission = 4500;
+  } else if (p <= 49999) {
+    commission = 5000;
+  } else if (p <= 64999) {
+    commission = 6000;
+  } else {
+    commission = 7000; // >= 65000
+  }
+  if (override && override.fragile) {
+    commission = Math.round((commission + p * FRAGILE_SURCHARGE_RATE) * 100) / 100;
+  }
+  return commission;
 }
 
-function computeDeliveryFee(weight) {
+function computeDeliveryFee(weight, override) {
+  if (override && override.deliveryFeeOverride != null && override.deliveryFeeOverride !== '') {
+    return Number(override.deliveryFeeOverride);
+  }
   const w = Number(weight) || 0;
   if (w <= 20) return 250;
   if (w <= 40) return 400;
@@ -141,14 +198,10 @@ function computeDeliveryFee(weight) {
 }
 
 // Returns { finalPrice, sellerPrice, commission, deliveryFee }.
-// sellerPrice and weight come from the product being priced - category
-// and fragile status no longer factor into pricing at all under this
-// model (the old model's category-commission and fragile-risk concepts
-// are gone, not just unused).
-function computeFinalPrice(sellerPrice, { weight } = {}) {
+function computeFinalPrice(sellerPrice, { weight, commissionType, commissionValue, deliveryFeeOverride, fragile } = {}) {
   sellerPrice = Number(sellerPrice) || 0;
-  const commission = computeCommission(sellerPrice);
-  const deliveryFee = computeDeliveryFee(weight);
+  const commission = computeCommission(sellerPrice, { commissionType, commissionValue, fragile });
+  const deliveryFee = computeDeliveryFee(weight, { deliveryFeeOverride });
   const finalPrice = Math.round((sellerPrice + commission + deliveryFee) * 100) / 100;
   return { finalPrice, sellerPrice, commission, deliveryFee };
 }

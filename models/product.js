@@ -6,17 +6,26 @@ const { uploadAnyToCloudinary, needsMigration } = require('../cloudinaryUpload')
 
 // Shared by create/update - runs the actual calculation in one place so
 // product creation and product editing can never compute the price two
-// different ways. Weight-driven, not category/fragile-driven - the old
-// pricing_rules/pricing_settings tables are no longer read here at all.
-function priceProduct(sellerPrice, { weight }) {
-  return computeFinalPrice(sellerPrice, { weight });
+// different ways.
+//
+// `override` (commissionType/commissionValue/deliveryFeeOverride/
+// fragile) is optional, per-product admin config - see helpers.js's
+// computeFinalPrice for exactly how it changes the calculation. Absent
+// or left at 'default', this behaves exactly as a plain bracket-only
+// calculation.
+function priceProduct(sellerPrice, { weight, commissionType, commissionValue, deliveryFeeOverride, fragile } = {}) {
+  return computeFinalPrice(sellerPrice, { weight, commissionType, commissionValue, deliveryFeeOverride, fragile });
 }
 
 const Product = {
   // Exposed for the price-preview endpoint, so a seller can see the
-  // final price before actually creating/saving anything.
-  async previewPrice(sellerPrice, { weight }) {
-    return priceProduct(sellerPrice, { weight });
+  // final price before actually creating/saving anything. The
+  // controller is responsible for only ever passing commissionType/
+  // commissionValue/deliveryFeeOverride through when the caller is
+  // admin - this function itself has no way to know who's asking, it
+  // just prices whatever it's given.
+  async previewPrice(sellerPrice, { weight, commissionType, commissionValue, deliveryFeeOverride, fragile } = {}) {
+    return priceProduct(sellerPrice, { weight, commissionType, commissionValue, deliveryFeeOverride, fragile });
   },
 
   // This replaces both of the old pricing migrations (migrateExistingPricing
@@ -32,13 +41,19 @@ const Product = {
   // deliberately changing the bracket amounts in code and wanting every
   // product to pick up the new numbers.
   async recalculateAllPricesNewModel() {
-    const [rows] = await pool.query('SELECT id, price, seller_price, weight FROM products');
+    const [rows] = await pool.query('SELECT id, price, seller_price, weight, commission_type, commission_value, delivery_fee_override, fragile FROM products');
     let migrated = 0;
     const errors = [];
     for (const row of rows) {
       try {
         const basePrice = row.seller_price !== null && row.seller_price !== undefined ? row.seller_price : row.price;
-        const priced = priceProduct(basePrice, { weight: row.weight });
+        const priced = priceProduct(basePrice, {
+          weight: row.weight,
+          commissionType: row.commission_type,
+          commissionValue: row.commission_value,
+          deliveryFeeOverride: row.delivery_fee_override,
+          fragile: !!row.fragile
+        });
         await pool.query(
           `UPDATE products SET seller_price = ?, price = ?, price_commission = ?, price_delivery_fee = ? WHERE id = ?`,
           [priced.sellerPrice, priced.finalPrice, priced.commission, priced.deliveryFee, row.id]
@@ -166,7 +181,13 @@ const Product = {
 
   async create(sellerId, data) {
     data = this._normalizeIncoming(data);
-    const priced = priceProduct(data.seller_price, { weight: data.weight || 1 });
+    const priced = priceProduct(data.seller_price, {
+      weight: data.weight || 1,
+      commissionType: data.commission_type,
+      commissionValue: data.commission_value,
+      deliveryFeeOverride: data.delivery_fee_override,
+      fragile: !!data.fragile
+    });
 
     const [result] = await pool.query(
       `INSERT INTO products
@@ -174,8 +195,9 @@ const Product = {
          price_delivery_fee, original_price, emoji, image, images_json, video,
          weight, fragile, stock, county, hot, is_new_arrival, is_best_rated, country_of_origin, made_in_kenya,
          flash_deal_ends_at, wholesale_tiers_json, has_variants, status, low_stock_threshold,
-         kanyaga_price, kanyaga_start_at, kanyaga_end_at, kanyaga_campaign)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         kanyaga_price, kanyaga_start_at, kanyaga_end_at, kanyaga_campaign,
+         commission_type, commission_value, delivery_fee_override)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [sellerId || null, data.name, data.description || null, data.category || null, data.category_id || null,
        data.brand || null, priced.finalPrice, priced.sellerPrice, priced.commission, priced.deliveryFee,
        data.original_price || null, data.emoji || null, data.image || null, data.images_json || null, data.video || null,
@@ -184,7 +206,8 @@ const Product = {
        data.flash_deal_ends_at || null, data.wholesale_tiers_json || null, data.has_variants || 0,
        data.status || 'active', data.low_stock_threshold || null,
        data.kanyaga_price || null, data.kanyaga_start_at || null, data.kanyaga_end_at || null,
-       data.kanyaga_price ? (data.kanyaga_campaign || 'kanyaga') : null]
+       data.kanyaga_price ? (data.kanyaga_campaign || 'kanyaga') : null,
+       data.commission_type || 'default', data.commission_value ?? null, data.delivery_fee_override ?? null]
     );
     return result.insertId;
   },
@@ -285,19 +308,25 @@ const Product = {
     return rows;
   },
 
-  // Re-runs the pricing calculation whenever seller_price or weight
-  // changes - those are the only two inputs the new fixed-bracket model
-  // uses (category and fragile status no longer affect price at all).
+  // Re-runs the pricing calculation whenever seller_price, weight,
+  // fragile status, or the per-product commission/delivery override
+  // changes - those are the only inputs the pricing model uses.
   // price/price_commission/price_delivery_fee are stripped from the
   // incoming data unconditionally first - a client can NEVER set the
   // buyer-facing price directly, only ever through this calculation.
   async _repriceIfNeeded(id, data, currentRow) {
     const { price, price_commission, price_delivery_fee, ...clean } = data;
-    const touchesPricing = clean.seller_price !== undefined || clean.weight !== undefined;
+    const touchesPricing = clean.seller_price !== undefined || clean.weight !== undefined
+      || clean.commission_type !== undefined || clean.commission_value !== undefined
+      || clean.delivery_fee_override !== undefined || clean.fragile !== undefined;
     if (!touchesPricing) return clean;
     const sellerPrice = clean.seller_price !== undefined ? clean.seller_price : currentRow.seller_price;
     const weight = clean.weight !== undefined ? clean.weight : currentRow.weight;
-    const priced = priceProduct(sellerPrice, { weight });
+    const commissionType = clean.commission_type !== undefined ? clean.commission_type : currentRow.commission_type;
+    const commissionValue = clean.commission_value !== undefined ? clean.commission_value : currentRow.commission_value;
+    const deliveryFeeOverride = clean.delivery_fee_override !== undefined ? clean.delivery_fee_override : currentRow.delivery_fee_override;
+    const fragile = clean.fragile !== undefined ? !!clean.fragile : !!currentRow.fragile;
+    const priced = priceProduct(sellerPrice, { weight, commissionType, commissionValue, deliveryFeeOverride, fragile });
     return {
       ...clean,
       seller_price: priced.sellerPrice,
@@ -328,7 +357,12 @@ const Product = {
 
   // Admin-only update: edits any product regardless of which seller (or
   // no seller) owns it - used for platform products added directly by
-  // an admin, since those have no seller to match against.
+  // an admin, since those have no seller to match against. This is the
+  // ONLY update path that includes commission_type/commission_value/
+  // delivery_fee_override in its allowed columns - productController.js's
+  // exports.update (seller-facing) explicitly strips those three fields
+  // from the request body before they ever reach here, so a seller can
+  // never set their own commission rate even via a hand-crafted request.
   async updateAsAdmin(id, data) {
     const current = await this.findById(id);
     if (!current) return false;
@@ -338,7 +372,8 @@ const Product = {
     const allowed = ['name', 'description', 'category', 'category_id', 'brand', 'price', 'seller_price', 'price_commission', 'price_delivery_fee', 'original_price', 'emoji',
       'image', 'images_json', 'video', 'weight', 'fragile', 'stock', 'hot', 'is_new_arrival', 'is_best_rated',
       'country_of_origin', 'made_in_kenya', 'flash_deal_ends_at', 'wholesale_tiers_json', 'has_variants',
-      'status', 'low_stock_threshold', 'kanyaga_price', 'kanyaga_start_at', 'kanyaga_end_at', 'kanyaga_campaign'];
+      'status', 'low_stock_threshold', 'kanyaga_price', 'kanyaga_start_at', 'kanyaga_end_at', 'kanyaga_campaign',
+      'commission_type', 'commission_value', 'delivery_fee_override'];
     const keys = Object.keys(data).filter(k => allowed.includes(k));
     if (!keys.length) return false;
     const setClause = keys.map(k => `${k} = ?`).join(', ');
